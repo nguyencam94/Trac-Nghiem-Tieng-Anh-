@@ -13,6 +13,9 @@ export default defineConfig(({mode}) => {
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+        workbox: {
+          maximumFileSizeToCacheInBytes: 4000000, // Increase limit to 4MB
+        },
         manifest: {
           name: 'English Quiz 10th Grade Prep',
           short_name: 'EnglishQuiz',
@@ -39,6 +42,17 @@ export default defineConfig(({mode}) => {
         }
       })
     ],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: (id) => {
+            if (id.includes('node_modules')) {
+              return 'vendor';
+            }
+          },
+        },
+      },
+    },
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
