@@ -1,0 +1,144 @@
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { collection, onSnapshot, query } from 'firebase/firestore';
+import { db } from '../firebase';
+import { Question, OperationType } from '../types';
+import { ChevronRight, FileText, Clock, BookOpen, AlertCircle } from 'lucide-react';
+import { motion } from 'motion/react';
+import { handleFirestoreError } from '../lib/utils';
+
+const ExamListPage: React.FC = () => {
+  const [sources, setSources] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [questionCounts, setQuestionCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const q = query(collection(db, 'questions'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedQuestions = snapshot.docs.map(doc => doc.data() as Question);
+      
+      // Extract unique sources and count questions per source
+      const counts: Record<string, number> = {};
+      const uniqueSources = new Set<string>();
+      
+      fetchedQuestions.forEach(q => {
+        if (q.source && q.source.trim() !== '' && q.source.toLowerCase() !== 'chung') {
+          uniqueSources.add(q.source);
+          counts[q.source] = (counts[q.source] || 0) + 1;
+        }
+      });
+      
+      setSources(Array.from(uniqueSources).sort());
+      setQuestionCounts(counts);
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'questions');
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-neutral-500 font-medium">Đang tải danh sách đề thi...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-8 sm:py-12 space-y-12">
+      <section className="text-center space-y-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="inline-block px-4 py-1.5 bg-rose-50 text-rose-600 rounded-full text-sm font-bold tracking-wide uppercase mb-2"
+        >
+          Luyện đề thi thử
+        </motion.div>
+        <motion.h1 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-3xl sm:text-5xl font-black tracking-tight text-neutral-900 leading-tight"
+        >
+          Danh sách <span className="text-rose-600">Đề thi thử</span>
+        </motion.h1>
+        <motion.p 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="text-lg text-neutral-500 max-w-2xl mx-auto"
+        >
+          Tổng hợp các đề thi từ các nguồn uy tín, giúp bạn làm quen với cấu trúc và áp lực thời gian.
+        </motion.p>
+      </section>
+
+      {sources.length === 0 ? (
+        <div className="bg-white p-12 rounded-[2.5rem] border-2 border-dashed border-neutral-200 text-center space-y-4">
+          <div className="w-20 h-20 bg-neutral-50 text-neutral-300 rounded-full flex items-center justify-center mx-auto">
+            <FileText className="w-10 h-10" />
+          </div>
+          <p className="text-neutral-500 font-medium">Hiện chưa có đề thi nào được cập nhật.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {sources.map((source, index) => (
+            <motion.div
+              key={source}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
+            >
+              <Link
+                to={`/exam/${encodeURIComponent(source)}`}
+                className="group block bg-white p-6 sm:p-8 rounded-[2rem] border-2 border-neutral-100 shadow-xl shadow-neutral-100/50 hover:shadow-2xl hover:shadow-rose-200/40 hover:border-rose-400 transition-all duration-300"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-4">
+                    <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                      <FileText className="w-7 h-7" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-xl font-black text-neutral-900 group-hover:text-rose-700 transition-colors line-clamp-2">
+                        {source}
+                      </h3>
+                      <div className="flex items-center gap-4 text-neutral-400 text-sm font-bold uppercase tracking-wider">
+                        <span className="flex items-center gap-1.5">
+                          <BookOpen className="w-4 h-4" />
+                          {questionCounts[source]} câu hỏi
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <Clock className="w-4 h-4" />
+                          60 phút
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="w-10 h-10 rounded-full bg-neutral-50 text-neutral-400 flex items-center justify-center group-hover:bg-rose-600 group-hover:text-white transition-all">
+                    <ChevronRight className="w-6 h-6" />
+                  </div>
+                </div>
+              </Link>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      <div className="bg-amber-50 p-6 rounded-2xl border border-amber-200 flex gap-4 max-w-3xl mx-auto">
+        <AlertCircle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <p className="font-bold text-amber-900">Lưu ý khi làm đề</p>
+          <p className="text-sm text-amber-800 leading-relaxed">
+            Mỗi đề thi có thời gian làm bài là 60 phút. Hệ thống sẽ tự động thu bài khi hết giờ. Hãy đảm bảo kết nối mạng ổn định trước khi bắt đầu.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ExamListPage;

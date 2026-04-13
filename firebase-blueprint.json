@@ -1,0 +1,147 @@
+{
+  "entities": {
+    "Category": {
+      "title": "Category",
+      "description": "A topic or category for English questions (e.g., Grammar, Vocabulary, Reading).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the category."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the category was created."
+        }
+      },
+      "required": ["name", "createdAt"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "A multiple-choice English question.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The question text."
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Four options (A, B, C, D)."
+        },
+        "correctOption": {
+          "type": "integer",
+          "description": "Index of the correct option (0-3)."
+        },
+        "categoryId": {
+          "type": "string",
+          "description": "ID of the category this question belongs to."
+        },
+        "exerciseType": {
+          "type": "string",
+          "enum": ["multiple_choice", "fill_blank", "error_find", "synonym_antonym", "pronunciation_stress", "sentence_transformation", "reorder", "reading_comprehension", "reading", "picture_guess", "other"],
+          "description": "The type of exercise."
+        },
+        "explanation": {
+          "type": "string",
+          "description": "Explanation for the correct answer."
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "Optional URL for an image related to the question."
+        },
+        "source": {
+          "type": "string",
+          "description": "The source of the question (e.g., specific exam name)."
+        },
+        "difficulty": {
+          "type": "integer",
+          "enum": [1, 2, 3],
+          "description": "Difficulty level: 1 (Easy), 2 (Medium), 3 (Hard)."
+        },
+        "order": {
+          "type": "integer",
+          "description": "Display order within a passage or exam."
+        },
+        "passage": {
+          "type": "string",
+          "description": "Reading passage text."
+        },
+        "passageId": {
+          "type": "string",
+          "description": "ID to group questions by passage."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the question was created."
+        }
+      },
+      "required": ["text", "options", "correctOption", "categoryId", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile information.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "User's email address."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "user"],
+          "description": "User's role."
+        }
+      },
+      "required": ["email", "role"]
+    },
+    "Grammar": {
+      "title": "Grammar",
+      "description": "A grammar topic for English review.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The title of the grammar topic."
+        },
+        "content": {
+          "type": "string",
+          "description": "The content of the grammar topic in Markdown."
+        },
+        "order": {
+          "type": "integer",
+          "description": "Display order of the topic."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the topic was created."
+        }
+      },
+      "required": ["title", "content", "order", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Collection of question categories."
+    },
+    "/questions/{questionId}": {
+      "schema": "Question",
+      "description": "Collection of quiz questions."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and roles."
+    },
+    "/grammar/{topicId}": {
+      "schema": "Grammar",
+      "description": "Collection of grammar review topics."
+    }
+  }
+}
