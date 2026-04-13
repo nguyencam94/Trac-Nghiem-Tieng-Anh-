@@ -19,7 +19,7 @@ const ExamPage: React.FC = () => {
   const { profile } = useAuth();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
-  const [userAnswers, setUserAnswers] = useState<Record<number, number | null>>({});
+  const [userAnswers, setUserAnswers] = useState<Record<number, number | string | null>>({});
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [showResultModal, setShowResultModal] = useState(false);
   const [showControls, setShowControls] = useState(false);
@@ -44,21 +44,33 @@ const ExamPage: React.FC = () => {
       'error_find': 3,
       'synonym_antonym': 4,
       'fill_blank': 5,
-      'reading': 6
+      'essay': 6,
+      'reading': 7
     };
 
     return [...qs].sort((a, b) => {
-      // 1. Priority by explicit order
+      // 1. Group by passageId first to keep reading questions together
+      if (a.passageId || b.passageId) {
+        if (a.passageId && b.passageId) {
+          if (a.passageId !== b.passageId) return a.passageId.localeCompare(b.passageId);
+        } else if (a.passageId) {
+          return -1; // Passage questions first
+        } else {
+          return 1;
+        }
+      }
+
+      // 2. Priority by explicit order
       const orderA = a.order ?? 999;
       const orderB = b.order ?? 999;
       if (orderA !== orderB) return orderA - orderB;
 
-      // 2. Priority by exercise type
+      // 3. Priority by exercise type
       const priorityA = typePriority[a.exerciseType] || 99;
       const priorityB = typePriority[b.exerciseType] || 99;
       if (priorityA !== priorityB) return priorityA - priorityB;
 
-      // 3. Finally by creation time
+      // 4. Finally by creation time
       return a.createdAt.localeCompare(b.createdAt);
     });
   };
@@ -77,9 +89,13 @@ const ExamPage: React.FC = () => {
         setAllQuestions(finalQuestions);
         
         // Initialize user answers
-        const initialAnswers: Record<number, number | null> = {};
-        finalQuestions.forEach((_, idx) => {
-          initialAnswers[idx] = null;
+        const initialAnswers: Record<number, number | string | null> = {};
+        finalQuestions.forEach((q, idx) => {
+          if (q.exerciseType === 'essay' && q.hint) {
+            initialAnswers[idx] = q.hint;
+          } else {
+            initialAnswers[idx] = null;
+          }
         });
         setUserAnswers(initialAnswers);
         setLoading(false);
@@ -114,7 +130,7 @@ const ExamPage: React.FC = () => {
     if (incorrectQuestions.length === 0) return;
 
     setQuestions(incorrectQuestions);
-    const initialAnswers: Record<number, number | null> = {};
+    const initialAnswers: Record<number, number | string | null> = {};
     incorrectQuestions.forEach((_, idx) => {
       initialAnswers[idx] = null;
     });
@@ -141,6 +157,11 @@ const ExamPage: React.FC = () => {
   const handleOptionSelect = (questionIdx: number, optionIdx: number) => {
     if (isSubmitted) return;
     setUserAnswers(prev => ({ ...prev, [questionIdx]: optionIdx }));
+  };
+
+  const handleEssayChange = (questionIdx: number, value: string) => {
+    if (isSubmitted) return;
+    setUserAnswers(prev => ({ ...prev, [questionIdx]: value }));
   };
 
   const startEditing = (q: Question) => {
@@ -293,7 +314,17 @@ const ExamPage: React.FC = () => {
     
     let correctCount = 0;
     questions.forEach((q, idx) => {
-      if (userAnswers[idx] === q.correctOption) {
+      if (q.exerciseType === 'essay') {
+        // Simple check for essay: if user typed something, we can count it or just compare
+        // For now, let's do a case-insensitive comparison if essayAnswer exists
+        if (q.essayAnswer && userAnswers[idx]) {
+          const userAns = (userAnswers[idx] as string).trim().toLowerCase();
+          const correctAns = q.essayAnswer.trim().toLowerCase();
+          if (userAns === correctAns) {
+            correctCount++;
+          }
+        }
+      } else if (userAnswers[idx] === q.correctOption) {
         correctCount++;
       }
     });
@@ -435,11 +466,12 @@ const ExamPage: React.FC = () => {
       <div className="space-y-6">
         {questions.map((q, qIdx) => {
           const hasPassage = !!q.passage;
-          const isNewPassage = q.passageId 
-            ? (qIdx === 0 || questions[qIdx - 1].passageId !== q.passageId)
-            : true;
+          const currentPassageKey = q.passageId || q.passage || null;
+          const prevPassageKey = qIdx > 0 ? (questions[qIdx - 1].passageId || questions[qIdx - 1].passage || null) : null;
           
-          const showPassage = hasPassage && isNewPassage;
+          const isNewPassage = hasPassage && (qIdx === 0 || currentPassageKey !== prevPassageKey);
+          
+          const showPassage = isNewPassage;
           
           return (
             <div key={q.id} className="space-y-3">
@@ -646,6 +678,10 @@ const ExamPage: React.FC = () => {
                           alt="Question visual" 
                           className="w-full h-auto object-contain max-h-[400px]"
                           referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.src = 'https://placehold.co/600x400?text=Ảnh+không+khả+dụng';
+                          }}
                         />
                       </div>
                     )}
@@ -664,44 +700,76 @@ const ExamPage: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 gap-2">
-                {q.options.map((opt, optIdx) => {
-                  let stateClass = "bg-white border-neutral-200 hover:border-rose-300";
-                  const isSelected = userAnswers[qIdx] === optIdx;
-                  
-                  if (isSelected) stateClass = "bg-rose-50 border-rose-400 ring-2 ring-rose-100";
-                  
-                  if (isSubmitted) {
-                    if (optIdx === q.correctOption) {
-                      stateClass = "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-100";
-                    } else if (isSelected) {
-                      stateClass = "bg-red-50 border-red-500 ring-2 ring-red-100";
-                    } else {
-                      stateClass = "bg-white border-neutral-100 opacity-50";
-                    }
-                  }
-
-                  return (
-                    <button
-                      key={optIdx}
-                      onClick={() => handleOptionSelect(qIdx, optIdx)}
-                      disabled={isSubmitted}
-                      className={`p-3 sm:p-4 rounded-xl border text-left transition-all flex items-center justify-between group ${stateClass}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm sm:text-base border transition-colors ${isSelected ? 'bg-rose-600 border-rose-600 text-white' : 'bg-neutral-50 border-neutral-200 text-neutral-500 group-hover:bg-rose-50 group-hover:border-rose-200 group-hover:text-rose-600'}`}>
-                          {String.fromCharCode(65 + optIdx)}
-                        </span>
-                        <span className="text-base sm:text-lg font-medium font-serif">{opt}</span>
+                {q.exerciseType === 'essay' ? (
+                  <div className="space-y-3">
+                    {q.hint && (
+                      <div className="flex items-center gap-2 text-blue-600 bg-blue-50 px-3 py-2 rounded-lg border border-blue-100 w-fit">
+                        <Info className="w-4 h-4" />
+                        <span className="text-sm font-bold">Gợi ý: {q.hint}</span>
                       </div>
-                      {isSubmitted && optIdx === q.correctOption && (
-                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                      )}
-                      {isSubmitted && isSelected && optIdx !== q.correctOption && (
-                        <XCircle className="w-5 h-5 text-red-600" />
-                      )}
-                    </button>
-                  );
-                })}
+                    )}
+                    <textarea
+                      value={(userAnswers[qIdx] as string) || ''}
+                      onChange={(e) => handleEssayChange(qIdx, e.target.value)}
+                      disabled={isSubmitted}
+                      className={`w-full p-4 rounded-xl border-2 font-serif text-lg outline-none transition-all ${
+                        isSubmitted 
+                          ? 'bg-neutral-50 border-neutral-200 text-neutral-600' 
+                          : 'bg-white border-neutral-200 focus:border-rose-400 focus:ring-4 focus:ring-rose-50'
+                      }`}
+                      placeholder="Nhập câu trả lời của bạn vào đây..."
+                      rows={3}
+                    />
+                    {isSubmitted && (
+                      <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
+                        <div className="flex items-center gap-2 text-emerald-700 font-bold uppercase tracking-widest text-xs">
+                          <CheckCircle2 className="w-4 h-4" />
+                          Đáp án đúng / Gợi ý:
+                        </div>
+                        <p className="text-emerald-800 font-serif text-lg">{q.essayAnswer}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  q.options.map((opt, optIdx) => {
+                    let stateClass = "bg-white border-neutral-200 hover:border-rose-300";
+                    const isSelected = userAnswers[qIdx] === optIdx;
+                    
+                    if (isSelected) stateClass = "bg-rose-50 border-rose-400 ring-2 ring-rose-100";
+                    
+                    if (isSubmitted) {
+                      if (optIdx === q.correctOption) {
+                        stateClass = "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-100";
+                      } else if (isSelected) {
+                        stateClass = "bg-red-50 border-red-500 ring-2 ring-red-100";
+                      } else {
+                        stateClass = "bg-white border-neutral-100 opacity-50";
+                      }
+                    }
+
+                    return (
+                      <button
+                        key={optIdx}
+                        onClick={() => handleOptionSelect(qIdx, optIdx)}
+                        disabled={isSubmitted}
+                        className={`p-3 sm:p-4 rounded-xl border text-left transition-all flex items-center justify-between group ${stateClass}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm sm:text-base border transition-colors ${isSelected ? 'bg-rose-600 border-rose-600 text-white' : 'bg-neutral-50 border-neutral-200 text-neutral-500 group-hover:bg-rose-50 group-hover:border-rose-200 group-hover:text-rose-600'}`}>
+                            {String.fromCharCode(65 + optIdx)}
+                          </span>
+                          <span className="text-base sm:text-lg font-medium font-serif">{opt}</span>
+                        </div>
+                        {isSubmitted && optIdx === q.correctOption && (
+                          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                        )}
+                        {isSubmitted && isSelected && optIdx !== q.correctOption && (
+                          <XCircle className="w-5 h-5 text-red-600" />
+                        )}
+                      </button>
+                    );
+                  })
+                )}
               </div>
 
               {isSubmitted && q.explanation && (

@@ -15,10 +15,12 @@ service cloud.firestore {
     // Document ID: auto-generated
     // Fields:
     //   - text: string (required) - Question text
-    //   - options: list (required, 4 items) - Options A, B, C, D
-    //   - correctOption: int (required, 0-3) - Index of correct option
+    //   - options: list (required, 4 items for MC, empty for essay)
+    //   - correctOption: int (required, 0-3 for MC, -1 for essay)
     //   - categoryId: string (required) - Reference to category
     //   - exerciseType: string (required) - Type of exercise
+    //   - essayAnswer: string (optional) - Answer for essay questions
+    //   - hint: string (optional) - Hint for essay questions
     //   - explanation: string (optional) - Explanation
     //   - difficulty: int (required, 1-3) - Difficulty level
     //   - createdAt: timestamp string (required)
@@ -59,13 +61,17 @@ service cloud.firestore {
     }
 
     function isValidQuestion(data) {
+      let isEssay = 'exerciseType' in data && data.exerciseType == 'essay';
+      
       return data.keys().hasAll(['text', 'options', 'correctOption', 'categoryId', 'createdAt']) &&
              data.text is string && data.text.size() > 0 && data.text.size() < 5000 &&
-             data.options is list && data.options.size() == 4 &&
-             data.correctOption is int && data.correctOption >= 0 && data.correctOption <= 3 &&
+             data.options is list && (isEssay ? data.options.size() == 0 : data.options.size() == 4) &&
+             data.correctOption is int && (isEssay ? data.correctOption == -1 : (data.correctOption >= 0 && data.correctOption <= 3)) &&
              data.categoryId is string &&
              data.createdAt is string &&
-             (!('exerciseType' in data) || (data.exerciseType is string && data.exerciseType in ['multiple_choice', 'fill_blank', 'error_find', 'synonym_antonym', 'pronunciation_stress', 'sentence_transformation', 'reorder', 'reading_comprehension', 'reading', 'picture_guess', 'other'])) &&
+             (!('exerciseType' in data) || (data.exerciseType is string && data.exerciseType in ['multiple_choice', 'fill_blank', 'error_find', 'synonym_antonym', 'pronunciation_stress', 'sentence_transformation', 'reorder', 'reading_comprehension', 'reading', 'picture_guess', 'essay', 'other'])) &&
+             (!('essayAnswer' in data) || (data.essayAnswer is string && data.essayAnswer.size() < 5000)) &&
+             (!('hint' in data) || (data.hint is string && data.hint.size() < 1000)) &&
              (!('difficulty' in data) || (data.difficulty is int && data.difficulty >= 1 && data.difficulty <= 3)) &&
              (!('explanation' in data) || (data.explanation is string && data.explanation.size() < 5000)) &&
              (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() < 1000)) &&

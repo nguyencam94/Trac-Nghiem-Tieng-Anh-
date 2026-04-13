@@ -61,6 +61,8 @@ const ManageQuestions: React.FC = () => {
     source: '',
     passage: '',
     passageId: '',
+    essayAnswer: '',
+    hint: '',
   });
 
   const exerciseTypes = [
@@ -73,6 +75,7 @@ const ManageQuestions: React.FC = () => {
     { id: 'sentence_transformation', name: 'Viết lại câu' },
     { id: 'reorder', name: 'Sắp xếp hội thoại, đoạn văn' },
     { id: 'reading_comprehension', name: 'Đọc hiểu' },
+    { id: 'essay', name: 'Tự luận / Trả lời ngắn' },
     { id: 'other', name: 'Khác' },
   ];
 
@@ -156,7 +159,17 @@ const ManageQuestions: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.text || !formData.categoryId || formData.options.some(o => !o)) return;
+    
+    // Validation
+    const isEssay = formData.exerciseType === 'essay';
+    const hasText = !!formData.text;
+    const hasCategory = !!formData.categoryId;
+    const hasValidOptions = isEssay ? true : (formData.options.length === 4 && formData.options.every(o => !!o));
+    
+    if (!hasText || !hasCategory || !hasValidOptions) {
+      alert('Vui lòng điền đầy đủ thông tin (Câu hỏi, Danh mục và các Đáp án nếu là trắc nghiệm).');
+      return;
+    }
 
     try {
       if (editingId) {
@@ -194,7 +207,7 @@ const ManageQuestions: React.FC = () => {
         });
       }
 
-      setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '' });
+      setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '', essayAnswer: '', hint: '' });
       setIsModalOpen(false);
       setEditingId(null);
     } catch (error) {
@@ -291,6 +304,8 @@ const ManageQuestions: React.FC = () => {
       source: q.source || '',
       passage: q.passage || '',
       passageId: q.passageId || '',
+      essayAnswer: q.essayAnswer || '',
+      hint: q.hint || '',
     });
     setEditingId(q.id);
     setIsModalOpen(true);
@@ -348,11 +363,15 @@ const ManageQuestions: React.FC = () => {
     try {
       let index = 0;
       for (const q of parsedQuestions) {
+        // Use AI detected type if it's essay, otherwise use bulk override if provided
+        const finalType = q.exerciseType === 'essay' ? 'essay' : (bulkExerciseType || q.exerciseType || 'multiple_choice');
+        
         await addDoc(collection(db, 'questions'), {
           ...q,
           categoryId: bulkCategoryId,
-          exerciseType: bulkExerciseType, // Override with batch type
+          exerciseType: finalType,
           source: bulkSource || q.source || '', // Set batch source or use AI-extracted one
+          essayAnswer: q.essayAnswer || '',
           createdAt: new Date().toISOString(),
           order: index++, // Maintain sequence from AI parsing
         });
@@ -534,7 +553,7 @@ const ManageQuestions: React.FC = () => {
             Dịch giải thích (AI)
           </button>
           <button
-            onClick={() => { setIsModalOpen(true); setEditingId(null); setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '' }); }}
+            onClick={() => { setIsModalOpen(true); setEditingId(null); setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '', essayAnswer: '', hint: '' }); }}
             className="bg-blue-600 text-white px-4 sm:px-6 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2 text-sm sm:text-base"
           >
             <Plus className="w-4 h-4 sm:w-5 h-5" />
@@ -630,35 +649,60 @@ const ManageQuestions: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                    {formData.options.map((opt, idx) => (
-                      <div key={idx} className="space-y-1.5">
-                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Đáp án {String.fromCharCode(65 + idx)}</label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={opt}
-                            onChange={(e) => {
-                              const newOpts = [...formData.options];
-                              newOpts[idx] = e.target.value;
-                              setFormData({ ...formData, options: newOpts });
-                            }}
-                            className="flex-1 bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
-                            placeholder={`Đáp án ${String.fromCharCode(65 + idx)}...`}
-                            required
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, correctOption: idx })}
-                            className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border transition-all text-xs font-bold uppercase tracking-wider ${formData.correctOption === idx ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100' : 'bg-white border-neutral-200 text-neutral-400 hover:border-emerald-300 hover:text-emerald-600'}`}
-                          >
-                            <Check className="w-4 h-4" />
-                            <span className="hidden xs:inline">{formData.correctOption === idx ? 'Đúng' : 'Chọn'}</span>
-                          </button>
-                        </div>
+                  {formData.exerciseType === 'essay' ? (
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Cụm từ gợi ý (Bắt đầu bằng...)</label>
+                        <input
+                          type="text"
+                          value={formData.hint}
+                          onChange={(e) => setFormData({ ...formData, hint: e.target.value })}
+                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
+                          placeholder="Ví dụ: I wish..., She said that..."
+                        />
                       </div>
-                    ))}
-                  </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Đáp án tự luận / Trả lời ngắn</label>
+                        <textarea
+                          value={formData.essayAnswer}
+                          onChange={(e) => setFormData({ ...formData, essayAnswer: e.target.value })}
+                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none h-24 text-sm sm:text-base transition-all"
+                          placeholder="Nhập đáp án đúng hoặc hướng dẫn chấm..."
+                          required
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                      {formData.options.map((opt, idx) => (
+                        <div key={idx} className="space-y-1.5">
+                          <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Đáp án {String.fromCharCode(65 + idx)}</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={opt}
+                              onChange={(e) => {
+                                const newOpts = [...formData.options];
+                                newOpts[idx] = e.target.value;
+                                setFormData({ ...formData, options: newOpts });
+                              }}
+                              className="flex-1 bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
+                              placeholder={`Đáp án ${String.fromCharCode(65 + idx)}...`}
+                              required
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setFormData({ ...formData, correctOption: idx })}
+                              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border transition-all text-xs font-bold uppercase tracking-wider ${formData.correctOption === idx ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100' : 'bg-white border-neutral-200 text-neutral-400 hover:border-emerald-300 hover:text-emerald-600'}`}
+                            >
+                              <Check className="w-4 h-4" />
+                              <span className="hidden xs:inline">{formData.correctOption === idx ? 'Đúng' : 'Chọn'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                       <div className="space-y-1.5">
@@ -1193,16 +1237,35 @@ const ManageQuestions: React.FC = () => {
                               </span>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
-                              {q.options.map((opt, oIdx) => (
-                                <div key={oIdx} className={`text-[10px] p-1.5 rounded border ${oIdx === q.correctOption ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-bold' : 'bg-neutral-50 border-neutral-100 text-neutral-500'}`}>
-                                  {String.fromCharCode(65 + oIdx)}. {opt}
+                              {q.exerciseType === 'essay' ? (
+                                <div className="col-span-2 space-y-2">
+                                  {q.hint && (
+                                    <div className="text-[10px] p-2 rounded border bg-blue-50 border-blue-200 text-blue-700 font-bold">
+                                      Gợi ý: {q.hint}
+                                    </div>
+                                  )}
+                                  <div className="text-[10px] p-2 rounded border bg-emerald-50 border-emerald-200 text-emerald-700 font-bold">
+                                    Đáp án: {q.essayAnswer}
+                                  </div>
                                 </div>
-                              ))}
+                              ) : (
+                                q.options.map((opt, oIdx) => (
+                                  <div key={oIdx} className={`text-[10px] p-1.5 rounded border ${oIdx === q.correctOption ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-bold' : 'bg-neutral-50 border-neutral-100 text-neutral-500'}`}>
+                                    {String.fromCharCode(65 + oIdx)}. {opt}
+                                  </div>
+                                ))
+                              )}
                             </div>
                             {q.passageId && (
                               <div className="flex items-center gap-1 text-[8px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100">
                                 <BookOpen className="w-3 h-3" />
                                 Bài đọc: {q.passageId}
+                              </div>
+                            )}
+                            {q.essayAnswer && (
+                              <div className="text-[10px] p-2 bg-blue-50 border border-blue-100 rounded text-blue-700">
+                                <span className="font-bold uppercase tracking-widest text-[8px] block mb-1">Đáp án tự luận:</span>
+                                {q.essayAnswer}
                               </div>
                             )}
                           </div>
@@ -1507,6 +1570,20 @@ const ManageQuestions: React.FC = () => {
                       {q.source && q.source.toLowerCase() !== 'chung' ? `**[${q.source}]** ${q.text}` : q.text}
                     </ReactMarkdown>
                   </div>
+                  {q.imageUrl && (
+                    <div className="mt-2 rounded-lg overflow-hidden border border-neutral-100 bg-neutral-50 w-fit max-w-[200px] group cursor-zoom-in">
+                      <img 
+                        src={q.imageUrl} 
+                        alt="Preview" 
+                        className="w-full h-auto object-contain max-h-[120px] transition-transform group-hover:scale-105"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = 'https://placehold.co/400x300?text=Lỗi+tải+ảnh';
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-1 sm:gap-2 shrink-0">
                   <button onClick={() => startEdit(q)} className="p-1.5 sm:px-3 sm:py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
@@ -1519,16 +1596,23 @@ const ManageQuestions: React.FC = () => {
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
-                {q.options.map((opt, idx) => (
-                  <div
-                    key={idx}
-                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm border ${idx === q.correctOption ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-medium' : 'bg-neutral-50 border-neutral-100 text-neutral-600'}`}
-                  >
-                    <span className="font-bold mr-1">{String.fromCharCode(65 + idx)}.</span> {opt}
-                  </div>
-                ))}
-              </div>
+              {q.exerciseType === 'essay' ? (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                  <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">Đáp án tự luận:</span>
+                  <p className="text-sm text-blue-800 font-medium">{q.essayAnswer}</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+                  {q.options.map((opt, idx) => (
+                    <div
+                      key={idx}
+                      className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm border ${idx === q.correctOption ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-medium' : 'bg-neutral-50 border-neutral-100 text-neutral-600'}`}
+                    >
+                      <span className="font-bold mr-1">{String.fromCharCode(65 + idx)}.</span> {opt}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

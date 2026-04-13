@@ -19,6 +19,8 @@ export interface Question {
   passageId?: string; // Optional ID to group questions belonging to the same passage
   order?: number; // Optional field to maintain order of questions
   imageUrl?: string; // Optional image URL for 'look at picture and guess' questions
+  essayAnswer?: string; // Optional answer for essay/short answer questions
+  hint?: string; // Optional hint for essay questions (e.g., "I wish...")
 }
 
 export interface UserProfile {

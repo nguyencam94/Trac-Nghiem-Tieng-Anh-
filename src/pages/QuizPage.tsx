@@ -16,7 +16,7 @@ const QuizPage: React.FC = () => {
   const navigate = useNavigate();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [category, setCategory] = useState<{ name: string } | null>(null);
-  const [userAnswers, setUserAnswers] = useState<Record<number, number | null>>({});
+  const [userAnswers, setUserAnswers] = useState<Record<number, number | string | null>>({});
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [score, setScore] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
@@ -53,6 +53,7 @@ const QuizPage: React.FC = () => {
             'pronunciation_stress': 'Phát âm / Trọng âm',
             'sentence_transformation': 'Viết lại câu',
             'reading_comprehension': 'Đọc hiểu',
+            'essay': 'Tự luận / Trả lời ngắn',
           };
           setCategory({ name: exerciseTypes[id] || 'Luyện tập theo dạng' });
           
@@ -61,14 +62,15 @@ const QuizPage: React.FC = () => {
           fetchedQuestions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
         }
         
-        // Group questions by passageId
+        // Group questions by passageId or passage content
         const passageGroups: Record<string, Question[]> = {};
         const singleQuestions: Question[] = [];
         
         fetchedQuestions.forEach(q => {
-          if (q.passageId) {
-            if (!passageGroups[q.passageId]) passageGroups[q.passageId] = [];
-            passageGroups[q.passageId].push(q);
+          const passageKey = q.passageId || (q.passage ? `text_${q.passage.substring(0, 50)}` : null);
+          if (passageKey) {
+            if (!passageGroups[passageKey]) passageGroups[passageKey] = [];
+            passageGroups[passageKey].push(q);
           } else {
             singleQuestions.push(q);
           }
@@ -99,9 +101,13 @@ const QuizPage: React.FC = () => {
         setQuestions(shuffled);
         
         // Initialize user answers
-        const initialAnswers: Record<number, number | null> = {};
-        shuffled.forEach((_, idx) => {
-          initialAnswers[idx] = null;
+        const initialAnswers: Record<number, number | string | null> = {};
+        shuffled.forEach((q, idx) => {
+          if (q.exerciseType === 'essay' && q.hint) {
+            initialAnswers[idx] = q.hint;
+          } else {
+            initialAnswers[idx] = null;
+          }
         });
         setUserAnswers(initialAnswers);
         
@@ -118,12 +124,25 @@ const QuizPage: React.FC = () => {
     setUserAnswers(prev => ({ ...prev, [qIdx]: optIdx }));
   };
 
+  const handleEssayChange = (qIdx: number, value: string) => {
+    if (isSubmitted) return;
+    setUserAnswers(prev => ({ ...prev, [qIdx]: value }));
+  };
+
   const handleSubmit = () => {
     if (isSubmitted) return;
     
     let finalScore = 0;
     questions.forEach((q, idx) => {
-      if (userAnswers[idx] === q.correctOption) {
+      if (q.exerciseType === 'essay') {
+        if (q.essayAnswer && userAnswers[idx]) {
+          const userAns = (userAnswers[idx] as string).trim().toLowerCase();
+          const correctAns = q.essayAnswer.trim().toLowerCase();
+          if (userAns === correctAns) {
+            finalScore += 1;
+          }
+        }
+      } else if (userAnswers[idx] === q.correctOption) {
         finalScore += 1;
       }
     });
@@ -174,7 +193,7 @@ const QuizPage: React.FC = () => {
     const shuffled = shuffledUnits.flat();
     setQuestions(shuffled);
     
-    const initialAnswers: Record<number, number | null> = {};
+    const initialAnswers: Record<number, number | string | null> = {};
     shuffled.forEach((_, idx) => {
       initialAnswers[idx] = null;
     });
@@ -223,11 +242,12 @@ const QuizPage: React.FC = () => {
       <div className="space-y-12">
         {questions.map((q, qIdx) => {
           const hasPassage = !!q.passage;
-          const isNewPassage = q.passageId 
-            ? (qIdx === 0 || questions[qIdx - 1].passageId !== q.passageId)
-            : true; // If no passageId, treat every question with passage as new
+          const currentPassageKey = q.passageId || q.passage || null;
+          const prevPassageKey = qIdx > 0 ? (questions[qIdx - 1].passageId || questions[qIdx - 1].passage || null) : null;
           
-          const showPassage = hasPassage && isNewPassage;
+          const isNewPassage = hasPassage && (qIdx === 0 || currentPassageKey !== prevPassageKey);
+          
+          const showPassage = isNewPassage;
           
           return (
             <div key={q.id} className="space-y-6">
@@ -287,6 +307,10 @@ const QuizPage: React.FC = () => {
                     alt="Question visual" 
                     className="w-full h-auto object-contain max-h-[300px]"
                     referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.src = 'https://placehold.co/600x400?text=Ảnh+không+khả+dụng';
+                    }}
                   />
                 </div>
               )}
@@ -303,44 +327,76 @@ const QuizPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 gap-3">
-              {q.options.map((opt, optIdx) => {
-                let stateClass = "bg-white border-neutral-200 hover:border-blue-300";
-                const isSelected = userAnswers[qIdx] === optIdx;
-                
-                if (isSelected) stateClass = "bg-blue-50 border-blue-400 ring-2 ring-blue-100";
-                
-                if (isSubmitted) {
-                  if (optIdx === q.correctOption) {
-                    stateClass = "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-100";
-                  } else if (isSelected) {
-                    stateClass = "bg-red-50 border-red-500 ring-2 ring-red-100";
-                  } else {
-                    stateClass = "bg-white border-neutral-100 opacity-50";
-                  }
-                }
-
-                return (
-                  <button
-                    key={optIdx}
-                    onClick={() => handleOptionSelect(qIdx, optIdx)}
-                    disabled={isSubmitted}
-                    className={`p-4 sm:p-5 rounded-xl border text-left transition-all flex items-center justify-between group ${stateClass}`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <span className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-base sm:text-lg border transition-colors ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-neutral-50 border-neutral-200 text-neutral-500 group-hover:bg-blue-50 group-hover:border-blue-200 group-hover:text-blue-600'}`}>
-                        {String.fromCharCode(65 + optIdx)}
-                      </span>
-                      <span className="text-lg sm:text-xl font-medium font-serif">{opt}</span>
+              {q.exerciseType === 'essay' ? (
+                <div className="space-y-4">
+                  {q.hint && (
+                    <div className="flex items-center gap-2 text-blue-600 bg-blue-50 px-4 py-2.5 rounded-2xl border border-blue-100 w-fit">
+                      <Info className="w-5 h-5" />
+                      <span className="text-base font-bold">Gợi ý: {q.hint}</span>
                     </div>
-                    {isSubmitted && optIdx === q.correctOption && (
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                    )}
-                    {isSubmitted && isSelected && optIdx !== q.correctOption && (
-                      <XCircle className="w-5 h-5 text-red-600" />
-                    )}
-                  </button>
-                );
-              })}
+                  )}
+                  <textarea
+                    value={(userAnswers[qIdx] as string) || ''}
+                    onChange={(e) => handleEssayChange(qIdx, e.target.value)}
+                    disabled={isSubmitted}
+                    className={`w-full p-5 rounded-2xl border-2 font-serif text-lg sm:text-xl outline-none transition-all ${
+                      isSubmitted 
+                        ? 'bg-neutral-50 border-neutral-200 text-neutral-600' 
+                        : 'bg-white border-neutral-200 focus:border-blue-400 focus:ring-4 focus:ring-blue-50'
+                    }`}
+                    placeholder="Nhập câu trả lời của bạn..."
+                    rows={3}
+                  />
+                  {isSubmitted && (
+                    <div className="p-5 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2">
+                      <div className="flex items-center gap-2 text-emerald-700 font-bold uppercase tracking-widest text-xs">
+                        <CheckCircle2 className="w-4 h-4" />
+                        Đáp án đúng / Gợi ý:
+                      </div>
+                      <p className="text-emerald-800 font-serif text-lg sm:text-xl">{q.essayAnswer}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                q.options.map((opt, optIdx) => {
+                  let stateClass = "bg-white border-neutral-200 hover:border-blue-300";
+                  const isSelected = userAnswers[qIdx] === optIdx;
+                  
+                  if (isSelected) stateClass = "bg-blue-50 border-blue-400 ring-2 ring-blue-100";
+                  
+                  if (isSubmitted) {
+                    if (optIdx === q.correctOption) {
+                      stateClass = "bg-emerald-50 border-emerald-500 ring-2 ring-emerald-100";
+                    } else if (isSelected) {
+                      stateClass = "bg-red-50 border-red-500 ring-2 ring-red-100";
+                    } else {
+                      stateClass = "bg-white border-neutral-100 opacity-50";
+                    }
+                  }
+
+                  return (
+                    <button
+                      key={optIdx}
+                      onClick={() => handleOptionSelect(qIdx, optIdx)}
+                      disabled={isSubmitted}
+                      className={`p-4 sm:p-5 rounded-xl border text-left transition-all flex items-center justify-between group ${stateClass}`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <span className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-base sm:text-lg border transition-colors ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-neutral-50 border-neutral-200 text-neutral-500 group-hover:bg-blue-50 group-hover:border-blue-200 group-hover:text-blue-600'}`}>
+                          {String.fromCharCode(65 + optIdx)}
+                        </span>
+                        <span className="text-lg sm:text-xl font-medium font-serif">{opt}</span>
+                      </div>
+                      {isSubmitted && optIdx === q.correctOption && (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                      )}
+                      {isSubmitted && isSelected && optIdx !== q.correctOption && (
+                        <XCircle className="w-5 h-5 text-red-600" />
+                      )}
+                    </button>
+                  );
+                })
+              )}
             </div>
 
             {isSubmitted && q.explanation && (

@@ -34,6 +34,7 @@ const PracticePage: React.FC = () => {
     { id: 'pronunciation_stress', name: 'Phát âm / Trọng âm', description: 'Luyện kỹ năng phát âm' },
     { id: 'sentence_transformation', name: 'Viết lại câu', description: 'Chuyển đổi cấu trúc câu' },
     { id: 'reading_comprehension', name: 'Đọc hiểu', description: 'Rèn luyện kỹ năng đọc' },
+    { id: 'essay', name: 'Tự luận / Trả lời ngắn', description: 'Luyện tập viết và trả lời ngắn' },
   ];
 
   if (loading) return <div className="flex justify-center py-20 text-neutral-500 font-medium">Đang tải danh sách bài tập...</div>;
