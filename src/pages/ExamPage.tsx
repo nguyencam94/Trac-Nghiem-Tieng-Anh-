@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { collection, getDocs, query, where, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, updateDoc, addDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '../firebase';
 import { Question, OperationType } from '../types';
@@ -27,48 +27,69 @@ const ExamPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingPassageId, setEditingPassageId] = useState<string | null>(null);
+  const [editingOptionsId, setEditingOptionsId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [editOptions, setEditOptions] = useState<string[]>([]);
   const [editImageUrl, setEditImageUrl] = useState("");
   const [editOrder, setEditOrder] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [timeLeft, setTimeLeft] = useState(60 * 60); // 60 minutes in seconds
+  const [isRetryMode, setIsRetryMode] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const exerciseTypeLabels: Record<string, string> = {
+    'multiple_choice': 'Chọn đáp án đúng (A, B, C, D)',
+    'picture_guess': 'Nhìn tranh đoán đáp án',
+    'fill_blank': 'Điền vào chỗ trống',
+    'error_find': 'Tìm lỗi sai',
+    'synonym_antonym': 'Đồng nghĩa / Trái nghĩa',
+    'pronunciation_stress': 'Phát âm / Trọng âm',
+    'sentence_transformation': 'Viết lại câu',
+    'reorder': 'Sắp xếp hội thoại, đoạn văn',
+    'reading_comprehension': 'Đọc hiểu',
+    'essay': 'Tự luận / Trả lời ngắn',
+    'other': 'Khác'
+  };
+
   const sortQuestions = (qs: Question[]) => {
-    // Sort primarily by order, then by type priority, then by createdAt
+    // Sort primarily by type priority, then by passage, then by order, then by createdAt
     const typePriority: Record<string, number> = {
       'multiple_choice': 1,
-      'picture_guess': 2,
+      'pronunciation_stress': 2,
       'error_find': 3,
       'synonym_antonym': 4,
       'fill_blank': 5,
-      'essay': 6,
-      'reading': 7
+      'reading_comprehension': 6,
+      'sentence_transformation': 7,
+      'reorder': 8,
+      'essay': 9,
+      'picture_guess': 10,
+      'other': 11
     };
 
     return [...qs].sort((a, b) => {
-      // 1. Group by passageId first to keep reading questions together
+      // 1. Priority by exercise type (Group same types together)
+      const priorityA = typePriority[a.exerciseType] || 99;
+      const priorityB = typePriority[b.exerciseType] || 99;
+      if (priorityA !== priorityB) return priorityA - priorityB;
+
+      // 2. Group by passageId within the same type (especially for reading)
       if (a.passageId || b.passageId) {
         if (a.passageId && b.passageId) {
           if (a.passageId !== b.passageId) return a.passageId.localeCompare(b.passageId);
         } else if (a.passageId) {
-          return -1; // Passage questions first
-        } else {
+          return -1;
+        } else if (b.passageId) {
           return 1;
         }
       }
 
-      // 2. Priority by explicit order
+      // 3. Priority by explicit order
       const orderA = a.order ?? 999;
       const orderB = b.order ?? 999;
       if (orderA !== orderB) return orderA - orderB;
-
-      // 3. Priority by exercise type
-      const priorityA = typePriority[a.exerciseType] || 99;
-      const priorityB = typePriority[b.exerciseType] || 99;
-      if (priorityA !== priorityB) return priorityA - priorityB;
 
       // 4. Finally by creation time
       return a.createdAt.localeCompare(b.createdAt);
@@ -136,6 +157,7 @@ const ExamPage: React.FC = () => {
     });
     setUserAnswers(initialAnswers);
     setIsSubmitted(false);
+    setIsRetryMode(true);
     setShowResultModal(false);
     setScore(0);
     setTimeLeft(Math.min(incorrectQuestions.length * 120, 3600)); // 2 mins per question, max 1 hour
@@ -176,10 +198,17 @@ const ExamPage: React.FC = () => {
     setEditValue(q.passage || "");
   };
 
+  const startEditingOptions = (q: Question) => {
+    setEditingOptionsId(q.id);
+    setEditOptions([...q.options]);
+  };
+
   const cancelEditing = () => {
     setEditingId(null);
     setEditingPassageId(null);
+    setEditingOptionsId(null);
     setEditValue("");
+    setEditOptions([]);
     setEditImageUrl("");
     setEditOrder(0);
   };
@@ -277,13 +306,38 @@ const ExamPage: React.FC = () => {
     }
   };
 
-  const insertFormat = (tag: string, isWrap: boolean = true) => {
-    const textarea = document.getElementById('quick-edit-textarea') as HTMLTextAreaElement;
+  const saveQuickEditOptions = async (qId: string) => {
+    setIsSaving(true);
+    try {
+      await updateDoc(doc(db, 'questions', qId), {
+        options: editOptions
+      });
+      
+      setQuestions(prev => prev.map(q => q.id === qId ? { ...q, options: editOptions } : q));
+      setEditingOptionsId(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `questions/${qId}/options`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const insertFormat = (tag: string, isWrap: boolean = true, target: 'text' | 'options' = 'text', optionIdx?: number) => {
+    let text = "";
+    let textareaId = "quick-edit-textarea";
+
+    if (target === 'text') {
+      text = editValue;
+    } else if (target === 'options' && optionIdx !== undefined) {
+      text = editOptions[optionIdx];
+      textareaId = `quick-edit-option-${optionIdx}`;
+    }
+
+    const textarea = document.getElementById(textareaId) as HTMLTextAreaElement | HTMLInputElement;
     if (!textarea) return;
 
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
-    const text = textarea.value;
     const before = text.substring(0, start);
     const selection = text.substring(start, end);
     const after = text.substring(end);
@@ -297,7 +351,14 @@ const ExamPage: React.FC = () => {
       newValue = before + tag + selection + after;
     }
 
-    setEditValue(newValue);
+    if (target === 'text') {
+      setEditValue(newValue);
+    } else if (target === 'options' && optionIdx !== undefined) {
+      const newOptions = [...editOptions];
+      newOptions[optionIdx] = newValue;
+      setEditOptions(newOptions);
+    }
+
     setTimeout(() => {
       textarea.focus();
       if (isWrap) {
@@ -333,6 +394,27 @@ const ExamPage: React.FC = () => {
     setScore(finalScore);
     setIsSubmitted(true);
     setShowResultModal(true);
+
+    // Save result to Firestore if user is logged in and NOT in retry mode
+    if (auth.currentUser && source && !isRetryMode) {
+      const saveResult = async () => {
+        try {
+          await addDoc(collection(db, 'exam_results'), {
+            userId: auth.currentUser?.uid,
+            userEmail: auth.currentUser?.email,
+            examSource: source,
+            score: finalScore,
+            correctCount: correctCount,
+            totalQuestions: questions.length,
+            completedAt: new Date().toISOString()
+          });
+        } catch (error) {
+          console.error("Error saving exam result:", error);
+          // We don't use handleFirestoreError here to avoid blocking the UI for a background save
+        }
+      };
+      saveResult();
+    }
   };
 
   const formatTime = (seconds: number) => {
@@ -418,7 +500,13 @@ const ExamPage: React.FC = () => {
               <div className="absolute top-0 left-0 w-full h-2 bg-rose-500" />
               <div className="space-y-2">
                 <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tight">Kết quả bài thi</h3>
-                <p className="text-neutral-500 font-medium">Bạn đã hoàn thành bài thi với số điểm:</p>
+                {isRetryMode ? (
+                  <div className="inline-block px-3 py-1 bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest rounded-full">
+                    Chế độ làm lại câu sai (Không lưu điểm)
+                  </div>
+                ) : (
+                  <p className="text-neutral-500 font-medium">Bạn đã hoàn thành bài thi với số điểm:</p>
+                )}
               </div>
               <div className="relative inline-block">
                 <div className="text-7xl sm:text-8xl font-black text-rose-600 tabular-nums">
@@ -463,18 +551,42 @@ const ExamPage: React.FC = () => {
       </AnimatePresence>
 
       {/* Questions List */}
-      <div className="space-y-6">
+      <div className="space-y-8">
         {questions.map((q, qIdx) => {
           const hasPassage = !!q.passage;
           const currentPassageKey = q.passageId || q.passage || null;
           const prevPassageKey = qIdx > 0 ? (questions[qIdx - 1].passageId || questions[qIdx - 1].passage || null) : null;
           
           const isNewPassage = hasPassage && (qIdx === 0 || currentPassageKey !== prevPassageKey);
+          const isNewType = qIdx === 0 || q.exerciseType !== questions[qIdx - 1].exerciseType;
           
+          // Calculate part number
+          let partNumber = 0;
+          if (isNewType) {
+            const uniqueTypesBefore = new Set(questions.slice(0, qIdx + 1).map(item => item.exerciseType));
+            partNumber = uniqueTypesBefore.size;
+          }
+
           const showPassage = isNewPassage;
           
           return (
-            <div key={q.id} className="space-y-3">
+            <div key={q.id} className="space-y-4">
+              {isNewType && (
+                <div className="pt-8 pb-4">
+                  <div className="flex items-center gap-4">
+                    <div className="flex-shrink-0 w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-black text-xl shadow-lg shadow-blue-100">
+                      {partNumber}
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-lg sm:text-xl font-black text-neutral-900 uppercase tracking-tight">
+                        {exerciseTypeLabels[q.exerciseType] || 'Phần tiếp theo'}
+                      </h2>
+                      <div className="h-1 w-20 bg-blue-600 rounded-full mt-1" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {showPassage && (
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }}
@@ -566,14 +678,25 @@ const ExamPage: React.FC = () => {
                 </motion.div>
               )}
 
-              <div className="flex items-center gap-2">
-                <span className="w-8 h-8 rounded-full bg-neutral-900 text-white flex items-center justify-center font-bold shrink-0 text-sm">
-                  {qIdx + 1}
-                </span>
-                {profile?.role === 'admin' && q.order !== undefined && (
-                  <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-bold uppercase">
-                    Order: {q.order}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-8 h-8 rounded-full bg-neutral-900 text-white flex items-center justify-center font-bold shrink-0 text-sm">
+                    {qIdx + 1}
                   </span>
+                  {profile?.role === 'admin' && q.order !== undefined && (
+                    <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-bold uppercase">
+                      Order: {q.order}
+                    </span>
+                  )}
+                </div>
+                {profile?.role === 'admin' && !editingOptionsId && q.exerciseType !== 'essay' && (
+                  <button 
+                    onClick={() => startEditingOptions(q)}
+                    className="p-1.5 bg-neutral-100 text-neutral-500 rounded-lg hover:bg-rose-50 hover:text-rose-600 transition-colors flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider"
+                    title="Sửa nhanh đáp án"
+                  >
+                    <Edit3 className="w-3 h-3" /> Sửa đáp án
+                  </button>
                 )}
                 <div className="h-px bg-neutral-200 flex-1" />
               </div>
@@ -730,6 +853,61 @@ const ExamPage: React.FC = () => {
                       </div>
                     )}
                   </div>
+                ) : editingOptionsId === q.id ? (
+                  <div className="space-y-4 bg-neutral-50 p-4 rounded-xl border border-neutral-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {editOptions.map((opt, idx) => (
+                        <div key={idx} className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-bold text-neutral-500 uppercase">Đáp án {String.fromCharCode(65 + idx)}</label>
+                            <div className="flex items-center gap-1">
+                              <button 
+                                onClick={() => insertFormat('<u>', true, 'options', idx)}
+                                className="p-1 hover:bg-neutral-200 rounded text-neutral-500"
+                                title="Gạch chân"
+                              >
+                                <Underline className="w-3 h-3" />
+                              </button>
+                              <button 
+                                onClick={() => insertFormat('**', true, 'options', idx)}
+                                className="p-1 hover:bg-neutral-200 rounded text-neutral-500"
+                                title="In đậm"
+                              >
+                                <Bold className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                          <input 
+                            id={`quick-edit-option-${idx}`}
+                            type="text"
+                            value={opt}
+                            onChange={(e) => {
+                              const newOpts = [...editOptions];
+                              newOpts[idx] = e.target.value;
+                              setEditOptions(newOpts);
+                            }}
+                            className="w-full p-2 border border-neutral-200 rounded-lg focus:ring-2 focus:ring-blue-100 outline-none text-sm font-serif"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2 border-t border-neutral-200">
+                      <button 
+                        onClick={cancelEditing}
+                        className="px-3 py-1.5 text-sm font-bold text-neutral-500 hover:bg-neutral-200 rounded-lg flex items-center gap-1"
+                      >
+                        <X className="w-4 h-4" /> Hủy
+                      </button>
+                      <button 
+                        onClick={() => saveQuickEditOptions(q.id)}
+                        disabled={isSaving}
+                        className="px-3 py-1.5 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
+                      >
+                        {isSaving ? <RotateCcw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        Lưu đáp án
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   q.options.map((opt, optIdx) => {
                     let stateClass = "bg-white border-neutral-200 hover:border-rose-300";
@@ -758,7 +936,19 @@ const ExamPage: React.FC = () => {
                           <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm sm:text-base border transition-colors ${isSelected ? 'bg-rose-600 border-rose-600 text-white' : 'bg-neutral-50 border-neutral-200 text-neutral-500 group-hover:bg-rose-50 group-hover:border-rose-200 group-hover:text-rose-600'}`}>
                             {String.fromCharCode(65 + optIdx)}
                           </span>
-                          <span className="text-base sm:text-lg font-medium font-serif">{opt}</span>
+                          <div className="text-base sm:text-lg font-medium font-serif">
+                            <ReactMarkdown
+                              rehypePlugins={[rehypeRaw]}
+                              remarkPlugins={[remarkGfm, remarkBreaks]}
+                              components={{
+                                p: ({ children }) => <span className="inline-block">{children}</span>,
+                                strong: ({ ...props }) => <strong className="font-black text-black" {...props} />,
+                                u: ({ ...props }) => <u className="decoration-rose-400 decoration-2 underline-offset-4" {...props} />
+                              }}
+                            >
+                              {opt}
+                            </ReactMarkdown>
+                          </div>
                         </div>
                         {isSubmitted && optIdx === q.correctOption && (
                           <CheckCircle2 className="w-5 h-5 text-emerald-600" />

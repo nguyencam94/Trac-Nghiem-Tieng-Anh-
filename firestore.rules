@@ -33,6 +33,17 @@ service cloud.firestore {
     //   - email: string (required)
     //   - role: string (required, 'admin' or 'user')
     //
+    // Collection: exam_results
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required)
+    //   - userEmail: string (required)
+    //   - examSource: string (required)
+    //   - score: number (required)
+    //   - correctCount: number (required)
+    //   - totalQuestions: number (required)
+    //   - completedAt: timestamp string (required)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -93,6 +104,17 @@ service cloud.firestore {
              data.createdAt is string;
     }
 
+    function isValidExamResult(data) {
+      return data.keys().hasAll(['userId', 'userEmail', 'examSource', 'score', 'correctCount', 'totalQuestions', 'completedAt']) &&
+             data.userId == request.auth.uid &&
+             data.userEmail is string &&
+             data.examSource is string &&
+             data.score is number &&
+             data.correctCount is number &&
+             data.totalQuestions is number &&
+             data.completedAt is string;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -124,6 +146,13 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isAdmin() && isValidGrammar(request.resource.data);
       allow update: if isAdmin() && isValidGrammar(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /exam_results/{resultId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidExamResult(request.resource.data);
+      allow update: if false; // Results should be immutable
       allow delete: if isAdmin();
     }
   }

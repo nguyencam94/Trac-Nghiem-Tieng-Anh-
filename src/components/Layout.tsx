@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { BookOpen, LogOut, User, ShieldCheck } from 'lucide-react';
+import { BookOpen, LogOut, User, ShieldCheck, BarChart3 } from 'lucide-react';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, profile, login, logout } = useAuth();
@@ -17,6 +17,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </Link>
 
           <nav className="flex items-center gap-4">
+            {user && (
+              <Link to="/statistics" className="flex items-center gap-1 text-sm font-medium text-neutral-600 hover:text-blue-600 transition-colors">
+                <BarChart3 className="w-4 h-4" />
+                Thống kê
+              </Link>
+            )}
             {profile?.role === 'admin' && (
               <Link to="/admin" className="flex items-center gap-1 text-sm font-medium text-neutral-600 hover:text-blue-600 transition-colors">
                 <ShieldCheck className="w-4 h-4" />

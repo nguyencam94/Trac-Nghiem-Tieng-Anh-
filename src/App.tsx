@@ -12,6 +12,7 @@ import ManageGrammar from './pages/ManageGrammar';
 import PracticePage from './pages/PracticePage';
 import ExamListPage from './pages/ExamListPage';
 import ExamPage from './pages/ExamPage';
+import StatisticsPage from './pages/StatisticsPage';
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="/practice" element={<PracticePage />} />
             <Route path="/exams" element={<ExamListPage />} />
             <Route path="/exam/:source" element={<ExamPage />} />
+            <Route path="/statistics" element={<StatisticsPage />} />
             <Route element={<AdminRoute />}>
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/admin/categories" element={<ManageCategories />} />

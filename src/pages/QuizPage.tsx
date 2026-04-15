@@ -385,7 +385,19 @@ const QuizPage: React.FC = () => {
                         <span className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-base sm:text-lg border transition-colors ${isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-neutral-50 border-neutral-200 text-neutral-500 group-hover:bg-blue-50 group-hover:border-blue-200 group-hover:text-blue-600'}`}>
                           {String.fromCharCode(65 + optIdx)}
                         </span>
-                        <span className="text-lg sm:text-xl font-medium font-serif">{opt}</span>
+                        <div className="text-lg sm:text-xl font-medium font-serif">
+                          <ReactMarkdown
+                            rehypePlugins={[rehypeRaw]}
+                            remarkPlugins={[remarkGfm, remarkBreaks]}
+                            components={{
+                              p: ({ children }) => <span className="inline-block">{children}</span>,
+                              strong: ({ ...props }) => <strong className="font-black text-black" {...props} />,
+                              u: ({ ...props }) => <u className="decoration-blue-400 decoration-2 underline-offset-4" {...props} />
+                            }}
+                          >
+                            {opt}
+                          </ReactMarkdown>
+                        </div>
                       </div>
                       {isSubmitted && optIdx === q.correctOption && (
                         <CheckCircle2 className="w-5 h-5 text-emerald-600" />

@@ -29,6 +29,17 @@ export interface UserProfile {
   role: 'admin' | 'user';
 }
 
+export interface ExamResult {
+  id: string;
+  userId: string;
+  userEmail: string;
+  examSource: string;
+  score: number;
+  correctCount: number;
+  totalQuestions: number;
+  completedAt: string;
+}
+
 export interface GrammarTopic {
   id: string;
   title: string;
