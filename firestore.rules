@@ -38,11 +38,21 @@ service cloud.firestore {
     // Fields:
     //   - userId: string (required)
     //   - userEmail: string (required)
+    //   - studentName: string (optional)
+    //   - studentClass: string (optional)
     //   - examSource: string (required)
     //   - score: number (required)
     //   - correctCount: number (required)
     //   - totalQuestions: number (required)
     //   - completedAt: timestamp string (required)
+    //
+    // Collection: school_accounts
+    // Document ID: auto-generated
+    // Fields:
+    //   - username: string (required)
+    //   - password: string (required)
+    //   - schoolName: string (required)
+    //   - createdAt: timestamp string (required)
     //
     // ===============================================================
 
@@ -60,7 +70,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        ((request.auth.token.email != null && request.auth.token.email.lower() == "nguyencam94@gmail.com") ||
+        ((request.auth.token.email != null && 
+          (request.auth.token.email.lower() == "nguyencam94@gmail.com" || 
+           request.auth.token.email.lower() == "modestman94@gmail.com")) ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
@@ -115,13 +127,23 @@ service cloud.firestore {
 
     function isValidExamResult(data) {
       return data.keys().hasAll(['userId', 'userEmail', 'examSource', 'score', 'correctCount', 'totalQuestions', 'completedAt']) &&
-             data.userId == request.auth.uid &&
+             (isAuthenticated() ? data.userId == request.auth.uid : true) &&
              data.userEmail is string &&
              data.examSource is string &&
              data.score is number &&
              data.correctCount is number &&
              data.totalQuestions is number &&
-             data.completedAt is string;
+             data.completedAt is string &&
+             (!('studentName' in data) || (data.studentName == null || (data.studentName is string && data.studentName.size() < 200))) &&
+             (!('studentClass' in data) || (data.studentClass == null || (data.studentClass is string && data.studentClass.size() < 50)));
+    }
+
+    function isValidSchoolAccount(data) {
+      return data.keys().hasAll(['username', 'password', 'schoolName', 'createdAt']) &&
+             data.username is string && data.username.size() > 0 &&
+             data.password is string && data.password.size() > 0 &&
+             data.schoolName is string && data.schoolName.size() > 0 &&
+             data.createdAt is string;
     }
 
     // ===============================================================
@@ -148,7 +170,9 @@ service cloud.firestore {
       allow read: if isAuthenticated(); // Allow all authenticated users to read profiles (needed for author display)
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
                     (request.resource.data.role == 'user' || 
-                     (request.resource.data.role == 'admin' && request.auth.token.email == "nguyencam94@gmail.com"));
+                     (request.resource.data.role == 'admin' && 
+                      (request.auth.token.email.lower() == "nguyencam94@gmail.com" || 
+                       request.auth.token.email.lower() == "modestman94@gmail.com")));
       allow update: if (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role) || isAdmin();
       allow delete: if isAdmin();
     }
@@ -163,9 +187,17 @@ service cloud.firestore {
     }
 
     match /exam_results/{resultId} {
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow create: if isAuthenticated() && isValidExamResult(request.resource.data);
+      allow read: if (isAuthenticated() && (resource.data.userId == request.auth.uid || isEditor())) || 
+                     (!isAuthenticated() && resource.data.userId != null); // Allow school students to see their results (simplified)
+      allow create: if (isAuthenticated() || true) && isValidExamResult(request.resource.data);
       allow update: if false; // Results should be immutable
+      allow delete: if isAdmin();
+    }
+
+    match /school_accounts/{accountId} {
+      allow read: if true; // Needed for login query
+      allow create: if isAdmin() && isValidSchoolAccount(request.resource.data);
+      allow update: if isAdmin() && isValidSchoolAccount(request.resource.data);
       allow delete: if isAdmin();
     }
   }

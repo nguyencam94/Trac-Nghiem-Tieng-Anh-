@@ -10,6 +10,8 @@ import ManageQuestions from './pages/ManageQuestions';
 import ManageUsers from './pages/ManageUsers';
 import GrammarPage from './pages/GrammarPage';
 import ManageGrammar from './pages/ManageGrammar';
+import ManageSchoolAccounts from './pages/ManageSchoolAccounts';
+import ManageResults from './pages/ManageResults';
 import PracticePage from './pages/PracticePage';
 import ExamListPage from './pages/ExamListPage';
 import ExamPage from './pages/ExamPage';
@@ -34,6 +36,8 @@ export default function App() {
               <Route path="/admin/questions" element={<ManageQuestions />} />
               <Route path="/admin/users" element={<ManageUsers />} />
               <Route path="/admin/grammar" element={<ManageGrammar />} />
+              <Route path="/admin/school-accounts" element={<ManageSchoolAccounts />} />
+              <Route path="/admin/results" element={<ManageResults />} />
             </Route>
           </Routes>
         </Layout>

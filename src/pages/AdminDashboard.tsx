@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings, PlusCircle, LayoutDashboard, BarChart3, HelpCircle, BookOpen, Users } from 'lucide-react';
+import { Settings, PlusCircle, LayoutDashboard, BarChart3, HelpCircle, BookOpen, Users, School } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -119,6 +119,34 @@ const AdminDashboard: React.FC = () => {
             <p className="text-neutral-600 leading-relaxed">Phân quyền Admin, Biên tập viên và quản lý danh sách người dùng.</p>
           </Link>
         )}
+
+        {profile?.role === 'admin' && (
+          <Link
+            to="/admin/school-accounts"
+            className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm hover:shadow-xl hover:border-emerald-300 transition-all group"
+          >
+            <div className="flex items-center gap-4 mb-4">
+              <div className="p-4 bg-emerald-50 rounded-2xl text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-all duration-300">
+                <School className="w-7 h-7" />
+              </div>
+              <h2 className="text-2xl font-bold text-neutral-900">Tài khoản trường</h2>
+            </div>
+            <p className="text-neutral-600 leading-relaxed">Tạo và quản lý tài khoản đăng nhập chung cho các trường học.</p>
+          </Link>
+        )}
+
+        <Link
+          to="/admin/results"
+          className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm hover:shadow-xl hover:border-rose-300 transition-all group"
+        >
+          <div className="flex items-center gap-4 mb-4">
+            <div className="p-4 bg-rose-50 rounded-2xl text-rose-600 group-hover:bg-rose-600 group-hover:text-white transition-all duration-300">
+              <BarChart3 className="w-7 h-7" />
+            </div>
+            <h2 className="text-2xl font-bold text-neutral-900">Kết quả thi</h2>
+          </div>
+          <p className="text-neutral-600 leading-relaxed">Theo dõi và thống kê toàn bộ lịch sử làm bài của học sinh.</p>
+        </Link>
       </div>
     </div>
   );

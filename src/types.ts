@@ -34,11 +34,21 @@ export interface ExamResult {
   id: string;
   userId: string;
   userEmail: string;
+  studentName?: string; // For school account students
+  studentClass?: string; // For school account students
   examSource: string;
   score: number;
   correctCount: number;
   totalQuestions: number;
   completedAt: string;
+}
+
+export interface SchoolAccount {
+  id: string;
+  username: string;
+  password: string;
+  schoolName: string;
+  createdAt: string;
 }
 
 export interface GrammarTopic {

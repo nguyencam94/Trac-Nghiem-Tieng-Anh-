@@ -6,7 +6,7 @@ import { db, storage, auth } from '../firebase';
 import { Question, OperationType } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, XCircle, Clock, AlertCircle, ChevronLeft, Send, RotateCcw, Info, BookOpen, ChevronRight, Eye, EyeOff, Edit3, Save, X, Underline, CornerDownLeft, Bold, Upload } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, AlertCircle, ChevronLeft, Send, RotateCcw, Info, BookOpen, ChevronRight, Eye, EyeOff, Edit3, Save, X, Underline, CornerDownLeft, Bold, Upload, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
@@ -16,7 +16,7 @@ import { handleFirestoreError } from '../lib/utils';
 const ExamPage: React.FC = () => {
   const { source } = useParams<{ source: string }>();
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, schoolAccount, studentInfo } = useAuth();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
   const [userAnswers, setUserAnswers] = useState<Record<number, number | string | null>>({});
@@ -99,6 +99,12 @@ const ExamPage: React.FC = () => {
   useEffect(() => {
     const fetchQuestions = async () => {
       if (!source) return;
+      
+      // If school account but no student info, don't fetch and wait for modal
+      if (schoolAccount && !studentInfo) {
+        setLoading(false);
+        return;
+      }
       
       try {
         const q = query(collection(db, 'questions'), where('source', '==', source));
@@ -396,12 +402,14 @@ const ExamPage: React.FC = () => {
     setShowResultModal(true);
 
     // Save result to Firestore if user is logged in and NOT in retry mode
-    if (auth.currentUser && source && !isRetryMode) {
+    if ((auth.currentUser || schoolAccount) && source && !isRetryMode) {
       const saveResult = async () => {
         try {
           await addDoc(collection(db, 'exam_results'), {
-            userId: auth.currentUser?.uid,
-            userEmail: auth.currentUser?.email,
+            userId: auth.currentUser?.uid || schoolAccount?.id,
+            userEmail: auth.currentUser?.email || schoolAccount?.username,
+            studentName: studentInfo?.name || null,
+            studentClass: studentInfo?.class || null,
             examSource: source,
             score: finalScore,
             correctCount: correctCount,
@@ -429,6 +437,28 @@ const ExamPage: React.FC = () => {
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-rose-600 border-t-transparent rounded-full animate-spin" />
           <p className="text-neutral-500 font-medium">Đang chuẩn bị đề thi...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (schoolAccount && !studentInfo) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh] px-4">
+        <div className="max-w-md w-full bg-white p-8 rounded-[2.5rem] border-2 border-amber-100 shadow-xl text-center space-y-6">
+          <div className="w-20 h-20 bg-amber-50 text-amber-600 rounded-3xl flex items-center justify-center mx-auto">
+            <User className="w-10 h-10" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-black text-neutral-900">Thiếu thông tin học sinh</h2>
+            <p className="text-neutral-500 font-medium">Vui lòng điền đầy đủ Họ tên và Lớp để bắt đầu làm bài thi.</p>
+          </div>
+          <button 
+            onClick={() => window.location.reload()}
+            className="w-full bg-amber-500 text-white py-4 rounded-2xl font-bold hover:bg-amber-600 transition-all shadow-lg shadow-amber-100"
+          >
+            Nhập thông tin ngay
+          </button>
         </div>
       </div>
     );

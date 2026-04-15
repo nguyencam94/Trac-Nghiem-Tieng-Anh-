@@ -9,7 +9,7 @@ import { BarChart3, Clock, Award, BookOpen, ChevronLeft, Calendar, Target, Trend
 import { useNavigate } from 'react-router-dom';
 
 const StatisticsPage: React.FC = () => {
-  const { user, profile } = useAuth();
+  const { user, profile, schoolAccount, studentInfo } = useAuth();
   const navigate = useNavigate();
   const [results, setResults] = useState<ExamResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,15 +18,20 @@ const StatisticsPage: React.FC = () => {
 
   useEffect(() => {
     const fetchResults = async () => {
-      if (!user) return;
+      const currentUserId = user?.uid || schoolAccount?.id;
+      if (!currentUserId) return;
       try {
         const q = query(
           collection(db, 'exam_results'),
-          where('userId', '==', user.uid),
+          where('userId', '==', currentUserId),
           orderBy('completedAt', 'desc')
         );
         const snapshot = await getDocs(q);
         const fetchedResults = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExamResult));
+        
+        // If it's a school account, we might want to filter by student name for the current session
+        // but usually it's better to show all results for that school account so they can see their progress
+        // or we can filter if studentInfo exists
         setResults(fetchedResults);
       } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'exam_results');
@@ -36,7 +41,7 @@ const StatisticsPage: React.FC = () => {
     };
 
     fetchResults();
-  }, [user]);
+  }, [user, schoolAccount]);
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -162,6 +167,9 @@ const StatisticsPage: React.FC = () => {
             <thead>
               <tr className="bg-neutral-50/50">
                 <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest">Thời gian</th>
+                {schoolAccount && (
+                  <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest">Học sinh</th>
+                )}
                 <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest">Tên đề thi</th>
                 <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest">Số câu đúng</th>
                 <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest">Điểm số</th>
@@ -188,6 +196,14 @@ const StatisticsPage: React.FC = () => {
                         </span>
                       </div>
                     </td>
+                    {schoolAccount && (
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold text-neutral-900">{result.studentName || 'N/A'}</span>
+                          <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider">Lớp {result.studentClass || 'N/A'}</span>
+                        </div>
+                      </td>
+                    )}
                     <td className="px-6 py-4">
                       <span className="text-sm font-bold text-neutral-900">{result.examSource}</span>
                     </td>

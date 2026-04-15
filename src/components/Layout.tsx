@@ -1,11 +1,19 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { BookOpen, LogOut, User, ShieldCheck, BarChart3 } from 'lucide-react';
+import { BookOpen, LogOut, User, ShieldCheck, BarChart3, GraduationCap } from 'lucide-react';
+import LoginModal from './LoginModal';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, profile, login, logout } = useAuth();
+  const { user, profile, schoolAccount, studentInfo, logout } = useAuth();
   const navigate = useNavigate();
+  const [isLoginModalOpen, setIsLoginModalOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    if (schoolAccount && !studentInfo) {
+      setIsLoginModalOpen(true);
+    }
+  }, [schoolAccount, studentInfo]);
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 font-sans">
@@ -17,7 +25,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </Link>
 
           <nav className="flex items-center gap-4">
-            {user && (
+            {(user || schoolAccount) && (
               <Link to="/statistics" className="flex items-center gap-1 text-sm font-medium text-neutral-600 hover:text-blue-600 transition-colors">
                 <BarChart3 className="w-4 h-4" />
                 Thống kê
@@ -29,11 +37,25 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 Admin
               </Link>
             )}
-            {user ? (
+            {user || schoolAccount ? (
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2 text-sm text-neutral-600">
-                  <User className="w-4 h-4" />
-                  <span className="hidden sm:inline">{user.displayName || user.email}</span>
+                  {schoolAccount ? (
+                    <div className="flex flex-col items-end">
+                      <div className="flex items-center gap-1.5 font-bold text-neutral-900">
+                        <GraduationCap className="w-4 h-4 text-blue-600" />
+                        {studentInfo?.name || 'Học sinh'}
+                      </div>
+                      <span className="text-[10px] text-neutral-400 font-medium uppercase tracking-wider">
+                        Lớp {studentInfo?.class || '...'} • {schoolAccount.schoolName}
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <User className="w-4 h-4" />
+                      <span className="hidden sm:inline">{user?.displayName || user?.email}</span>
+                    </>
+                  )}
                 </div>
                 <button
                   onClick={() => { logout(); navigate('/'); }}
@@ -45,15 +67,20 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               </div>
             ) : (
               <button
-                onClick={login}
+                onClick={() => setIsLoginModalOpen(true)}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
               >
-                Login
+                Đăng nhập
               </button>
             )}
           </nav>
         </div>
       </header>
+
+      <LoginModal 
+        isOpen={isLoginModalOpen} 
+        onClose={() => setIsLoginModalOpen(false)} 
+      />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {children}

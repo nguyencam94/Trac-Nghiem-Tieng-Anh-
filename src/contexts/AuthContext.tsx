@@ -1,15 +1,19 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import { UserProfile, OperationType } from '../types';
+import { UserProfile, OperationType, SchoolAccount } from '../types';
 import { handleFirestoreError } from '../lib/utils';
 
 interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
+  schoolAccount: SchoolAccount | null;
+  studentInfo: { name: string; class: string } | null;
   loading: boolean;
   login: () => Promise<void>;
+  loginWithSchool: (username: string, password: string) => Promise<boolean>;
+  setStudent: (name: string, className: string) => void;
   logout: () => Promise<void>;
 }
 
@@ -18,12 +22,26 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [schoolAccount, setSchoolAccount] = useState<SchoolAccount | null>(() => {
+    const saved = localStorage.getItem('schoolAccount');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [studentInfo, setStudentInfo] = useState<{ name: string; class: string } | null>(() => {
+    const saved = localStorage.getItem('studentInfo');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
+        // Clear school account if logged in with Google
+        setSchoolAccount(null);
+        setStudentInfo(null);
+        localStorage.removeItem('schoolAccount');
+        localStorage.removeItem('studentInfo');
+        
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid));
           if (userDoc.exists()) {
@@ -66,12 +84,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithSchool = async (username: string, password: string): Promise<boolean> => {
+    try {
+      const q = query(
+        collection(db, 'school_accounts'),
+        where('username', '==', username),
+        where('password', '==', password)
+      );
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        const account = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as SchoolAccount;
+        setSchoolAccount(account);
+        localStorage.setItem('schoolAccount', JSON.stringify(account));
+        // Logout Google if any
+        if (user) await signOut(auth);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('School login error:', error);
+      return false;
+    }
+  };
+
+  const setStudent = (name: string, className: string) => {
+    const info = { name, class: className };
+    setStudentInfo(info);
+    localStorage.setItem('studentInfo', JSON.stringify(info));
+  };
+
   const logout = async () => {
     await signOut(auth);
+    setSchoolAccount(null);
+    setStudentInfo(null);
+    localStorage.removeItem('schoolAccount');
+    localStorage.removeItem('studentInfo');
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, login, logout }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      profile, 
+      schoolAccount, 
+      studentInfo, 
+      loading, 
+      login, 
+      loginWithSchool, 
+      setStudent, 
+      logout 
+    }}>
       {children}
     </AuthContext.Provider>
   );

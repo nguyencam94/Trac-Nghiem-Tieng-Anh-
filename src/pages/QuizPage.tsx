@@ -3,9 +3,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Question, Category, OperationType } from '../types';
-import { CheckCircle2, XCircle, ChevronRight, RotateCcw, Home, Info, BookOpen } from 'lucide-react';
+import { CheckCircle2, XCircle, ChevronRight, RotateCcw, Home, Info, BookOpen, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { handleFirestoreError } from '../lib/utils';
+import { useAuth } from '../contexts/AuthContext';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
@@ -14,6 +15,7 @@ import remarkBreaks from 'remark-breaks';
 const QuizPage: React.FC = () => {
   const { type, id } = useParams<{ type: string; id: string }>();
   const navigate = useNavigate();
+  const { schoolAccount, studentInfo } = useAuth();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [category, setCategory] = useState<{ name: string } | null>(null);
   const [userAnswers, setUserAnswers] = useState<Record<number, number | string | null>>({});
@@ -25,6 +27,12 @@ const QuizPage: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       if (!type || !id) return;
+      
+      // If school account but no student info, don't fetch and wait for modal
+      if (schoolAccount && !studentInfo) {
+        setLoading(false);
+        return;
+      }
       
       try {
         let fetchedQuestions: Question[] = [];
@@ -203,6 +211,29 @@ const QuizPage: React.FC = () => {
   };
 
   if (loading) return <div className="flex justify-center py-20">Đang tải câu hỏi...</div>;
+
+  if (schoolAccount && !studentInfo) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh] px-4">
+        <div className="max-w-md w-full bg-white p-8 rounded-[2.5rem] border-2 border-amber-100 shadow-xl text-center space-y-6">
+          <div className="w-20 h-20 bg-amber-50 text-amber-600 rounded-3xl flex items-center justify-center mx-auto">
+            <User className="w-10 h-10" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-black text-neutral-900">Thiếu thông tin học sinh</h2>
+            <p className="text-neutral-500 font-medium">Vui lòng điền đầy đủ Họ tên và Lớp để bắt đầu làm bài tập.</p>
+          </div>
+          <button 
+            onClick={() => window.location.reload()}
+            className="w-full bg-amber-500 text-white py-4 rounded-2xl font-bold hover:bg-amber-600 transition-all shadow-lg shadow-amber-100"
+          >
+            Nhập thông tin ngay
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (questions.length === 0) return (
     <div className="text-center py-20 space-y-4">
       <p className="text-xl text-neutral-600">Chưa có câu hỏi nào cho chủ đề này.</p>
