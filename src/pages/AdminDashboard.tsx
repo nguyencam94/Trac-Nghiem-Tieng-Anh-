@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings, PlusCircle, LayoutDashboard, BarChart3, HelpCircle, BookOpen } from 'lucide-react';
+import { Settings, PlusCircle, LayoutDashboard, BarChart3, HelpCircle, BookOpen, Users } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 
+import { useAuth } from '../contexts/AuthContext';
+
 const AdminDashboard: React.FC = () => {
+  const { profile } = useAuth();
   const [stats, setStats] = useState({ categories: 0, questions: 0 });
   const [loading, setLoading] = useState(true);
 
@@ -101,6 +104,21 @@ const AdminDashboard: React.FC = () => {
           </div>
           <p className="text-neutral-600 leading-relaxed">Soạn thảo và quản lý các bài viết ôn tập ngữ pháp trọng tâm.</p>
         </Link>
+
+        {profile?.role === 'admin' && (
+          <Link
+            to="/admin/users"
+            className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm hover:shadow-xl hover:border-indigo-300 transition-all group"
+          >
+            <div className="flex items-center gap-4 mb-4">
+              <div className="p-4 bg-indigo-50 rounded-2xl text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
+                <Users className="w-7 h-7" />
+              </div>
+              <h2 className="text-2xl font-bold text-neutral-900">Quản lý người dùng</h2>
+            </div>
+            <p className="text-neutral-600 leading-relaxed">Phân quyền Admin, Biên tập viên và quản lý danh sách người dùng.</p>
+          </Link>
+        )}
       </div>
     </div>
   );

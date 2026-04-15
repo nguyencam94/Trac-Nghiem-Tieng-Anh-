@@ -7,6 +7,7 @@ import QuizPage from './pages/QuizPage';
 import AdminDashboard from './pages/AdminDashboard';
 import ManageCategories from './pages/ManageCategories';
 import ManageQuestions from './pages/ManageQuestions';
+import ManageUsers from './pages/ManageUsers';
 import GrammarPage from './pages/GrammarPage';
 import ManageGrammar from './pages/ManageGrammar';
 import PracticePage from './pages/PracticePage';
@@ -31,6 +32,7 @@ export default function App() {
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/admin/categories" element={<ManageCategories />} />
               <Route path="/admin/questions" element={<ManageQuestions />} />
+              <Route path="/admin/users" element={<ManageUsers />} />
               <Route path="/admin/grammar" element={<ManageGrammar />} />
             </Route>
           </Routes>

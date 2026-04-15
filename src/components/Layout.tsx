@@ -23,7 +23,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 Thống kê
               </Link>
             )}
-            {profile?.role === 'admin' && (
+            {(profile?.role === 'admin' || profile?.role === 'editor') && (
               <Link to="/admin" className="flex items-center gap-1 text-sm font-medium text-neutral-600 hover:text-blue-600 transition-colors">
                 <ShieldCheck className="w-4 h-4" />
                 Admin

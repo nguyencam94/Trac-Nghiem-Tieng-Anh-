@@ -6,7 +6,7 @@ const AdminRoute: React.FC = () => {
   const { profile, loading } = useAuth();
 
   if (loading) return <div>Loading...</div>;
-  if (!profile || profile.role !== 'admin') {
+  if (!profile || (profile.role !== 'admin' && profile.role !== 'editor')) {
     return <Navigate to="/" replace />;
   }
 

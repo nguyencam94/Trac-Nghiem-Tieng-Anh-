@@ -9,7 +9,7 @@ import { BarChart3, Clock, Award, BookOpen, ChevronLeft, Calendar, Target, Trend
 import { useNavigate } from 'react-router-dom';
 
 const StatisticsPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [results, setResults] = useState<ExamResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,7 +165,9 @@ const StatisticsPage: React.FC = () => {
                 <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest">Tên đề thi</th>
                 <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest">Số câu đúng</th>
                 <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest">Điểm số</th>
-                <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest text-right">Thao tác</th>
+                {profile?.role === 'admin' && (
+                  <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest text-right">Thao tác</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
@@ -211,20 +213,22 @@ const StatisticsPage: React.FC = () => {
                         {result.score.toFixed(1)}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={() => setDeleteId(result.id)}
-                        className="p-2 text-neutral-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                        title="Xóa kết quả này"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
+                    {profile?.role === 'admin' && (
+                      <td className="px-6 py-4 text-right">
+                        <button 
+                          onClick={() => setDeleteId(result.id)}
+                          className="p-2 text-neutral-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                          title="Xóa kết quả này"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-neutral-400 font-medium">
+                  <td colSpan={profile?.role === 'admin' ? 5 : 4} className="px-6 py-12 text-center text-neutral-400 font-medium">
                     Bạn chưa thực hiện bài thi nào.
                   </td>
                 </tr>

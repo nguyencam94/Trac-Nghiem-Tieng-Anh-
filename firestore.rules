@@ -31,7 +31,7 @@ service cloud.firestore {
     // Document ID: userId (auth.uid)
     // Fields:
     //   - email: string (required)
-    //   - role: string (required, 'admin' or 'user')
+    //   - role: string (required, 'admin', 'editor' or 'user')
     //
     // Collection: exam_results
     // Document ID: auto-generated
@@ -65,6 +65,13 @@ service cloud.firestore {
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
+    function isEditor() {
+      return isAuthenticated() &&
+        (isAdmin() || 
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'editor'));
+    }
+
     function isValidCategory(data) {
       return data.keys().hasAll(['name', 'createdAt']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
@@ -89,19 +96,21 @@ service cloud.firestore {
              (!('source' in data) || (data.source is string && data.source.size() < 500)) &&
              (!('passage' in data) || (data.passage is string && data.passage.size() < 20000)) &&
              (!('passageId' in data) || (data.passageId is string && data.passageId.size() < 200)) &&
+             (!('authorId' in data) || (data.authorId is string)) &&
              (!('order' in data) || (data.order is int));
     }
 
     function isValidUser(data) {
       return data.keys().hasAll(['email', 'role']) &&
              data.email is string &&
-             data.role in ['admin', 'user'];
+             data.role in ['admin', 'editor', 'user'];
     }
 
     function isValidGrammar(data) {
       return data.title is string && data.title.size() > 0 &&
              data.content is string && data.content.size() > 0 &&
-             data.createdAt is string;
+             data.createdAt is string &&
+             (!('authorId' in data) || (data.authorId is string));
     }
 
     function isValidExamResult(data) {
@@ -128,13 +137,15 @@ service cloud.firestore {
 
     match /questions/{questionId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidQuestion(request.resource.data);
-      allow update: if isAdmin() && isValidQuestion(request.resource.data);
-      allow delete: if isAdmin();
+      allow create: if isEditor() && isValidQuestion(request.resource.data) && 
+                    (isAdmin() || request.resource.data.authorId == request.auth.uid);
+      allow update: if isEditor() && isValidQuestion(request.resource.data) && 
+                    (isAdmin() || resource.data.authorId == request.auth.uid);
+      allow delete: if isEditor() && (isAdmin() || resource.data.authorId == request.auth.uid);
     }
 
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
+      allow read: if isAuthenticated(); // Allow all authenticated users to read profiles (needed for author display)
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
                     (request.resource.data.role == 'user' || 
                      (request.resource.data.role == 'admin' && request.auth.token.email == "nguyencam94@gmail.com"));
@@ -144,9 +155,11 @@ service cloud.firestore {
 
     match /grammar/{topicId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidGrammar(request.resource.data);
-      allow update: if isAdmin() && isValidGrammar(request.resource.data);
-      allow delete: if isAdmin();
+      allow create: if isEditor() && isValidGrammar(request.resource.data) && 
+                    (isAdmin() || request.resource.data.authorId == request.auth.uid);
+      allow update: if isEditor() && isValidGrammar(request.resource.data) && 
+                    (isAdmin() || resource.data.authorId == request.auth.uid);
+      allow delete: if isEditor() && (isAdmin() || resource.data.authorId == request.auth.uid);
     }
 
     match /exam_results/{resultId} {

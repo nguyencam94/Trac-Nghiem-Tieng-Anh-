@@ -3,11 +3,13 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Category, OperationType } from '../types';
-import { Plus, Trash2, Edit2, X, Check, ChevronLeft } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { Plus, Trash2, Edit2, X, Check, ChevronLeft, ShieldAlert } from 'lucide-react';
 import { handleFirestoreError } from '../lib/utils';
 
 const ManageCategories: React.FC = () => {
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [categories, setCategories] = useState<Category[]>([]);
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -75,29 +77,38 @@ const ManageCategories: React.FC = () => {
         <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Quản lý chủ đề</h1>
       </div>
 
-      <form onSubmit={handleAdd} className="flex gap-2">
-        <input
-          type="text"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          placeholder="Tên chủ đề mới..."
-          className="flex-1 bg-white border border-neutral-200 rounded-xl px-3 sm:px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base"
-        />
-        <button
-          type="submit"
-          className="bg-blue-600 text-white px-4 sm:px-6 py-2 rounded-xl font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm sm:text-base"
-        >
-          <Plus className="w-4 h-4 sm:w-5 h-5" />
-          Thêm
-        </button>
-      </form>
+      {profile?.role === 'admin' ? (
+        <form onSubmit={handleAdd} className="flex gap-2">
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Tên chủ đề mới..."
+            className="flex-1 bg-white border border-neutral-200 rounded-xl px-3 sm:px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base"
+          />
+          <button
+            type="submit"
+            className="bg-blue-600 text-white px-4 sm:px-6 py-2 rounded-xl font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm sm:text-base"
+          >
+            <Plus className="w-4 h-4 sm:w-5 h-5" />
+            Thêm
+          </button>
+        </form>
+      ) : (
+        <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center gap-3 text-amber-700">
+          <ShieldAlert className="w-5 h-5" />
+          <p className="text-sm font-medium">Chỉ Quản trị viên mới có quyền thêm hoặc chỉnh sửa chủ đề.</p>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-neutral-200 overflow-hidden shadow-sm">
         <table className="w-full text-left">
           <thead className="bg-neutral-50 border-b border-neutral-200">
             <tr>
               <th className="px-3 sm:px-6 py-3 sm:py-4 font-semibold text-xs sm:text-sm text-neutral-600 uppercase tracking-wider">Tên chủ đề</th>
-              <th className="px-3 sm:px-6 py-3 sm:py-4 font-semibold text-xs sm:text-sm text-neutral-600 uppercase tracking-wider text-right">Thao tác</th>
+              {profile?.role === 'admin' && (
+                <th className="px-3 sm:px-6 py-3 sm:py-4 font-semibold text-xs sm:text-sm text-neutral-600 uppercase tracking-wider text-right">Thao tác</th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-200">
@@ -116,33 +127,35 @@ const ManageCategories: React.FC = () => {
                     <span className="font-medium text-sm sm:text-base">{cat.name}</span>
                   )}
                 </td>
-                <td className="px-3 sm:px-6 py-3 sm:py-4 text-right">
-                  <div className="flex justify-end gap-1 sm:gap-2">
-                    {editingId === cat.id ? (
-                      <>
-                        <button onClick={() => handleUpdate(cat.id)} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-xs sm:text-sm font-medium">
-                          <Check className="w-3.5 h-3.5 sm:w-4 h-4" />
-                          <span className="hidden sm:inline">Lưu</span>
-                        </button>
-                        <button onClick={() => setEditingId(null)} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 bg-neutral-200 text-neutral-700 rounded-lg hover:bg-neutral-300 transition-colors text-xs sm:text-sm font-medium">
-                          <X className="w-3.5 h-3.5 sm:w-4 h-4" />
-                          <span className="hidden sm:inline">Hủy</span>
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button onClick={() => startEdit(cat)} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-xs sm:text-sm font-medium">
-                          <Edit2 className="w-3.5 h-3.5 sm:w-4 h-4" />
-                          <span className="hidden sm:inline">Sửa</span>
-                        </button>
-                        <button onClick={() => handleDelete(cat.id)} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors text-xs sm:text-sm font-medium">
-                          <Trash2 className="w-3.5 h-3.5 sm:w-4 h-4" />
-                          <span className="hidden sm:inline">Xóa</span>
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </td>
+                {profile?.role === 'admin' && (
+                  <td className="px-3 sm:px-6 py-3 sm:py-4 text-right">
+                    <div className="flex justify-end gap-1 sm:gap-2">
+                      {editingId === cat.id ? (
+                        <>
+                          <button onClick={() => handleUpdate(cat.id)} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-xs sm:text-sm font-medium">
+                            <Check className="w-3.5 h-3.5 sm:w-4 h-4" />
+                            <span className="hidden sm:inline">Lưu</span>
+                          </button>
+                          <button onClick={() => setEditingId(null)} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 bg-neutral-200 text-neutral-700 rounded-lg hover:bg-neutral-300 transition-colors text-xs sm:text-sm font-medium">
+                            <X className="w-3.5 h-3.5 sm:w-4 h-4" />
+                            <span className="hidden sm:inline">Hủy</span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => startEdit(cat)} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-xs sm:text-sm font-medium">
+                            <Edit2 className="w-3.5 h-3.5 sm:w-4 h-4" />
+                            <span className="hidden sm:inline">Sửa</span>
+                          </button>
+                          <button onClick={() => handleDelete(cat.id)} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors text-xs sm:text-sm font-medium">
+                            <Trash2 className="w-3.5 h-3.5 sm:w-4 h-4" />
+                            <span className="hidden sm:inline">Xóa</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

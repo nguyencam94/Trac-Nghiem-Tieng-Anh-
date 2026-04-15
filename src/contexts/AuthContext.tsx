@@ -53,7 +53,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async () => {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
-    await signInWithPopup(auth, provider);
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+        // User closed the popup or a previous request was cancelled, no action needed
+        console.log('Login popup closed or cancelled');
+      } else {
+        console.error('Login error:', error);
+        alert('Có lỗi xảy ra khi đăng nhập. Vui lòng thử lại.');
+      }
+    }
   };
 
   const logout = async () => {

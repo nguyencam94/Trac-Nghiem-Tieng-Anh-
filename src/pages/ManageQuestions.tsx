@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, where } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '../firebase';
-import { Category, Question, OperationType } from '../types';
-import { Plus, Trash2, Edit2, X, Check, Filter, ChevronLeft, BookOpen, AlertCircle, Sparkles, Loader2, Save, FileText, Image as ImageIcon, Upload, Search, Copy, Download, Info } from 'lucide-react';
+import { Category, Question, OperationType, UserProfile } from '../types';
+import { useAuth } from '../contexts/AuthContext';
+import { Plus, Trash2, Edit2, X, Check, Filter, ChevronLeft, BookOpen, AlertCircle, Sparkles, Loader2, Save, FileText, Image as ImageIcon, Upload, Search, Copy, Download, Info, User, Shield } from 'lucide-react';
 import { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel } from 'docx';
 import { saveAs } from 'file-saver';
 import { handleFirestoreError } from '../lib/utils';
@@ -17,13 +18,16 @@ import { parseQuestionsFromText, parseQuestionsFromFile, ParsedQuestion, transla
 
 const ManageQuestions: React.FC = () => {
   const navigate = useNavigate();
+  const { user, profile } = useAuth();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>('all');
   const [selectedExerciseType, setSelectedExerciseType] = useState<string>('all');
   const [selectedSource, setSelectedSource] = useState<string>('all');
+  const [selectedAuthor, setSelectedAuthor] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [authors, setAuthors] = useState<UserProfile[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -94,9 +98,17 @@ const ManageQuestions: React.FC = () => {
       handleFirestoreError(error, OperationType.LIST, 'questions');
     });
 
+    const qUsers = query(collection(db, 'users'), orderBy('email'));
+    const unsubUsers = onSnapshot(qUsers, (snapshot) => {
+      setAuthors(snapshot.docs.map(doc => doc.data() as UserProfile));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
+    });
+
     return () => {
       unsubCats();
       unsubQuests();
+      unsubUsers();
     };
   }, []);
 
@@ -204,6 +216,7 @@ const ManageQuestions: React.FC = () => {
           ...formData,
           createdAt: new Date().toISOString(),
           order: maxOrder + 1,
+          authorId: user?.uid
         });
       }
 
@@ -317,8 +330,9 @@ const ManageQuestions: React.FC = () => {
     const exerciseTypeMatch = selectedExerciseType === 'all' || q.exerciseType === selectedExerciseType;
     const sourceValue = q.source || 'Nguồn tổng hợp';
     const sourceMatch = selectedSource === 'all' || sourceValue === selectedSource;
+    const authorMatch = selectedAuthor === 'all' || q.authorId === selectedAuthor;
     const searchMatch = !searchQuery || q.text.toLowerCase().includes(searchQuery.toLowerCase());
-    return categoryMatch && difficultyMatch && exerciseTypeMatch && sourceMatch && searchMatch;
+    return categoryMatch && difficultyMatch && exerciseTypeMatch && sourceMatch && authorMatch && searchMatch;
   });
 
   const recentIds = questions.slice(0, 30).map(q => q.id);
@@ -374,6 +388,7 @@ const ManageQuestions: React.FC = () => {
           essayAnswer: q.essayAnswer || '',
           createdAt: new Date().toISOString(),
           order: index++, // Maintain sequence from AI parsing
+          authorId: user?.uid
         });
       }
       setIsBulkModalOpen(false);
@@ -382,7 +397,7 @@ const ManageQuestions: React.FC = () => {
       setBulkCategoryId('');
       setBulkSource('');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'questions_bulk');
+      handleFirestoreError(error, OperationType.CREATE, 'questions');
     } finally {
       setIsSavingBulk(false);
     }
@@ -1511,6 +1526,25 @@ const ManageQuestions: React.FC = () => {
                 {uniqueSources.sort().map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Người soạn</span>
+              <select
+                value={selectedAuthor}
+                onChange={(e) => setSelectedAuthor(e.target.value)}
+                className="bg-transparent border-none focus:ring-0 text-xs sm:text-sm font-bold text-blue-600 cursor-pointer p-0"
+              >
+                <option value="all">Tất cả</option>
+                {authors
+                  .filter(a => a.role === 'admin' || a.role === 'editor')
+                  .map(a => (
+                    <option key={a.uid} value={a.uid}>
+                      {a.email.split('@')[0]} ({a.role === 'admin' ? 'Admin' : 'BT Viên'})
+                    </option>
+                  ))
+                }
+              </select>
+            </div>
           </div>
         </div>
       </div>
@@ -1518,6 +1552,8 @@ const ManageQuestions: React.FC = () => {
         <div className="space-y-3 sm:space-y-4">
           {filteredQuestions.map((q) => {
             const isRecent = recentIds.includes(q.id);
+            const canEdit = profile?.role === 'admin' || (profile?.role === 'editor' && q.authorId === user?.uid);
+            
             return (
               <div 
                 key={q.id} 
@@ -1557,6 +1593,12 @@ const ManageQuestions: React.FC = () => {
                         {q.passageId ? `Đọc hiểu: ${q.passageId}` : 'Có bài đọc'}
                       </span>
                     )}
+                    {q.authorId && (
+                      <span className="flex items-center gap-1 bg-neutral-50 text-neutral-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-neutral-200 uppercase tracking-tighter">
+                        <User className="w-2.5 h-2.5" />
+                        {q.authorId === user?.uid ? 'Của tôi' : (authors.find(a => a.uid === q.authorId)?.email.split('@')[0] || 'Người khác')}
+                      </span>
+                    )}
                   </div>
                   <div className="text-base sm:text-lg font-medium text-neutral-900 leading-tight prose prose-neutral max-w-none font-serif">
                     <ReactMarkdown
@@ -1586,14 +1628,24 @@ const ManageQuestions: React.FC = () => {
                   )}
                 </div>
                 <div className="flex gap-1 sm:gap-2 shrink-0">
-                  <button onClick={() => startEdit(q)} className="p-1.5 sm:px-3 sm:py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
-                    <Edit2 className="w-4 h-4" />
-                    <span className="hidden sm:inline">Sửa</span>
-                  </button>
-                  <button onClick={() => setDeleteConfirmId(q.id)} className="p-1.5 sm:px-3 sm:py-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
-                    <Trash2 className="w-4 h-4" />
-                    <span className="hidden sm:inline">Xóa</span>
-                  </button>
+                  {canEdit && (
+                    <>
+                      <button onClick={() => startEdit(q)} className="p-1.5 sm:px-3 sm:py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
+                        <Edit2 className="w-4 h-4" />
+                        <span className="hidden sm:inline">Sửa</span>
+                      </button>
+                      <button onClick={() => setDeleteConfirmId(q.id)} className="p-1.5 sm:px-3 sm:py-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
+                        <Trash2 className="w-4 h-4" />
+                        <span className="hidden sm:inline">Xóa</span>
+                      </button>
+                    </>
+                  )}
+                  {!canEdit && (
+                    <div className="p-1.5 sm:px-3 sm:py-1.5 text-neutral-300 cursor-not-allowed flex items-center gap-1" title="Bạn không có quyền sửa câu hỏi này">
+                      <Shield className="w-4 h-4" />
+                      <span className="hidden sm:inline text-xs">Read-only</span>
+                    </div>
+                  )}
                 </div>
               </div>
               {q.exerciseType === 'essay' ? (

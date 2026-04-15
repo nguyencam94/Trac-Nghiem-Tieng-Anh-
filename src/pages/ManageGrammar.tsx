@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { GrammarTopic, OperationType } from '../types';
-import { Plus, Trash2, Edit2, X, ChevronLeft, BookOpen, AlertCircle, GripVertical, Table } from 'lucide-react';
+import { GrammarTopic, OperationType, UserProfile } from '../types';
+import { useAuth } from '../contexts/AuthContext';
+import { Plus, Trash2, Edit2, X, ChevronLeft, BookOpen, AlertCircle, GripVertical, Table, ShieldAlert } from 'lucide-react';
 import { handleFirestoreError } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -13,7 +14,9 @@ import { motion, AnimatePresence } from 'motion/react';
 
 const ManageGrammar: React.FC = () => {
   const navigate = useNavigate();
+  const { user, profile } = useAuth();
   const [topics, setTopics] = useState<GrammarTopic[]>([]);
+  const [authors, setAuthors] = useState<UserProfile[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
@@ -75,7 +78,17 @@ const ManageGrammar: React.FC = () => {
       handleFirestoreError(error, OperationType.LIST, 'grammar');
     });
 
-    return () => unsubscribe();
+    const qUsers = query(collection(db, 'users'), orderBy('email'));
+    const unsubUsers = onSnapshot(qUsers, (snapshot) => {
+      setAuthors(snapshot.docs.map(doc => doc.data() as UserProfile));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
+    });
+
+    return () => {
+      unsubscribe();
+      unsubUsers();
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -95,6 +108,7 @@ const ManageGrammar: React.FC = () => {
         await addDoc(collection(db, 'grammar'), {
           ...formData,
           createdAt: new Date().toISOString(),
+          authorId: user?.uid
         });
       }
 
@@ -143,13 +157,20 @@ const ManageGrammar: React.FC = () => {
             </p>
           </div>
         </div>
-        <button
-          onClick={() => { setIsModalOpen(true); setEditingId(null); setViewMode('edit'); setFormData({ title: '', content: '', order: topics.length + 1 }); }}
-          className="bg-blue-600 text-white px-4 sm:px-6 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2 self-start text-sm sm:text-base"
-        >
-          <Plus className="w-4 h-4 sm:w-5 h-5" />
-          Thêm chủ đề
-        </button>
+        {profile?.role === 'admin' || profile?.role === 'editor' ? (
+          <button
+            onClick={() => { setIsModalOpen(true); setEditingId(null); setViewMode('edit'); setFormData({ title: '', content: '', order: topics.length + 1 }); }}
+            className="bg-blue-600 text-white px-4 sm:px-6 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2 self-start text-sm sm:text-base"
+          >
+            <Plus className="w-4 h-4 sm:w-5 h-5" />
+            Thêm chủ đề
+          </button>
+        ) : (
+          <div className="bg-amber-50 border border-amber-200 px-4 py-2 rounded-xl flex items-center gap-2 text-amber-700">
+            <ShieldAlert className="w-4 h-4" />
+            <span className="text-xs font-bold">Chỉ Admin mới có quyền soạn thảo ngữ pháp</span>
+          </div>
+        )}
       </div>
 
       <AnimatePresence>
@@ -310,29 +331,47 @@ const ManageGrammar: React.FC = () => {
       </AnimatePresence>
 
       <div className="grid grid-cols-1 gap-4">
-        {topics.map((topic) => (
-          <div key={topic.id} className="bg-white p-4 sm:p-6 rounded-2xl border border-neutral-200 shadow-sm hover:shadow-md transition-all flex items-center justify-between group">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-neutral-50 rounded-xl flex items-center justify-center text-neutral-400 font-bold">
-                {topic.order}
-              </div>
-              <div>
-                <h3 className="font-bold text-lg text-neutral-900">{topic.title}</h3>
-                <p className="text-xs text-neutral-500">
-                  Cập nhật: {new Date(topic.createdAt).toLocaleDateString('vi-VN')}
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => startEdit(topic)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors">
-                <Edit2 className="w-5 h-5" />
-              </button>
-              <button onClick={() => handleDelete(topic.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-colors">
-                <Trash2 className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-        ))}
+            {topics.map((topic) => {
+              const canEdit = profile?.role === 'admin' || (profile?.role === 'editor' && topic.authorId === user?.uid);
+              return (
+                <div key={topic.id} className="bg-white p-4 sm:p-6 rounded-2xl border border-neutral-200 shadow-sm hover:shadow-md transition-all flex items-center justify-between group">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-neutral-50 rounded-xl flex items-center justify-center text-neutral-400 font-bold">
+                      {topic.order}
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-lg text-neutral-900">{topic.title}</h3>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-neutral-500">
+                          Cập nhật: {new Date(topic.createdAt).toLocaleDateString('vi-VN')}
+                        </p>
+                        {topic.authorId && (
+                          <span className="text-[10px] font-bold text-neutral-400 bg-neutral-50 px-2 py-0.5 rounded-full border border-neutral-100">
+                            {topic.authorId === user?.uid ? 'Của tôi' : (authors.find(a => a.uid === topic.authorId)?.email.split('@')[0] || 'Người khác')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {canEdit ? (
+                      <>
+                        <button onClick={() => startEdit(topic)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors">
+                          <Edit2 className="w-5 h-5" />
+                        </button>
+                        <button onClick={() => handleDelete(topic.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-xl transition-colors">
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </>
+                    ) : (
+                      <div className="p-2 text-neutral-300 cursor-not-allowed" title="Bạn không có quyền sửa bài này">
+                        <ShieldAlert className="w-5 h-5" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
 
         {topics.length === 0 && (
           <div className="text-center py-12 text-neutral-500 italic bg-white rounded-2xl border border-dashed border-neutral-200">
