@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings, PlusCircle, LayoutDashboard, BarChart3, HelpCircle, BookOpen, Users, School } from 'lucide-react';
+import { Settings, PlusCircle, LayoutDashboard, BarChart3, HelpCircle, BookOpen, Users, School, EyeOff } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -146,6 +146,19 @@ const AdminDashboard: React.FC = () => {
             <h2 className="text-2xl font-bold text-neutral-900">Kết quả thi</h2>
           </div>
           <p className="text-neutral-600 leading-relaxed">Theo dõi và thống kê toàn bộ lịch sử làm bài của học sinh.</p>
+        </Link>
+
+        <Link
+          to="/admin/exams"
+          className="bg-white p-8 rounded-3xl border border-neutral-200 shadow-sm hover:shadow-xl hover:border-amber-300 transition-all group"
+        >
+          <div className="flex items-center gap-4 mb-4">
+            <div className="p-4 bg-amber-50 rounded-2xl text-amber-600 group-hover:bg-amber-600 group-hover:text-white transition-all duration-300">
+              <EyeOff className="w-7 h-7" />
+            </div>
+            <h2 className="text-2xl font-bold text-neutral-900">Quản lý Đề thi</h2>
+          </div>
+          <p className="text-neutral-600 leading-relaxed">Ẩn hoặc hiện danh sách các đề thi thử trên trang học tập.</p>
         </Link>
       </div>
     </div>

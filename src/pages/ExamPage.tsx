@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { collection, getDocs, query, where, doc, updateDoc, addDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, updateDoc, addDoc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '../firebase';
-import { Question, OperationType } from '../types';
+import { Question, OperationType, ExamConfig } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, XCircle, Clock, AlertCircle, ChevronLeft, Send, RotateCcw, Info, BookOpen, ChevronRight, Eye, EyeOff, Edit3, Save, X, Underline, CornerDownLeft, Bold, Upload, User } from 'lucide-react';
@@ -107,6 +107,17 @@ const ExamPage: React.FC = () => {
       }
       
       try {
+        // Check if exam is hidden
+        const configDoc = await getDoc(doc(db, 'exam_configs', source));
+        if (configDoc.exists()) {
+          const config = configDoc.data() as ExamConfig;
+          if (config.isHidden && profile?.role !== 'admin' && profile?.role !== 'editor') {
+            alert('Đề thi này đang tạm ẩn.');
+            navigate('/exams');
+            return;
+          }
+        }
+
         const q = query(collection(db, 'questions'), where('source', '==', source));
         const snapshot = await getDocs(q);
         const fetchedQuestions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));

@@ -60,6 +60,13 @@ export interface GrammarTopic {
   authorId?: string;
 }
 
+export interface ExamConfig {
+  id: string; // The source name acts as ID
+  isHidden: boolean;
+  order?: number;
+  updatedAt: string;
+}
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',

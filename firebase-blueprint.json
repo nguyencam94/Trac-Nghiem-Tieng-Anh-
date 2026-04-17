@@ -124,6 +124,27 @@
         }
       },
       "required": ["title", "content", "order", "createdAt"]
+    },
+    "ExamConfig": {
+      "title": "ExamConfig",
+      "description": "Configuration and metadata for an exam source.",
+      "type": "object",
+      "properties": {
+        "isHidden": {
+          "type": "boolean",
+          "description": "Whether the exam is hidden from students."
+        },
+        "order": {
+          "type": "integer",
+          "description": "Optional display order."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp."
+        }
+      },
+      "required": ["isHidden", "updatedAt"]
     }
   },
   "firestore": {
@@ -142,6 +163,10 @@
     "/grammar/{topicId}": {
       "schema": "Grammar",
       "description": "Collection of grammar review topics."
+    },
+    "/exam_configs/{sourceId}": {
+      "schema": "ExamConfig",
+      "description": "Metadata and visibility settings for exam sources."
     }
   }
 }

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Question, OperationType } from '../types';
+import { Question, OperationType, ExamConfig } from '../types';
 import { ChevronRight, FileText, Clock, BookOpen, AlertCircle, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { handleFirestoreError } from '../lib/utils';
@@ -13,32 +13,58 @@ const ExamListPage: React.FC = () => {
   const [questionCounts, setQuestionCounts] = useState<Record<string, number>>({});
   const [searchTerm, setSearchTerm] = useState("");
 
+  const [allQuestions, setAllQuestions] = useState<Question[]>([]);
+  const [hiddenSources, setHiddenSources] = useState<Set<string>>(new Set());
+
   useEffect(() => {
-    const q = query(collection(db, 'questions'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedQuestions = snapshot.docs.map(doc => doc.data() as Question);
-      
-      // Extract unique sources and count questions per source
-      const counts: Record<string, number> = {};
-      const uniqueSources = new Set<string>();
-      
-      fetchedQuestions.forEach(q => {
-        if (q.source && q.source.trim() !== '' && q.source.toLowerCase() !== 'chung') {
-          uniqueSources.add(q.source);
-          counts[q.source] = (counts[q.source] || 0) + 1;
+    // Listen to configs
+    const unsubscribeConfigs = onSnapshot(collection(db, 'exam_configs'), (snapshot) => {
+      const hidden = new Set<string>();
+      snapshot.docs.forEach(doc => {
+        const cfg = doc.data() as ExamConfig;
+        if (cfg.isHidden) {
+          hidden.add(doc.id);
         }
       });
-      
-      setSources(Array.from(uniqueSources).sort());
-      setQuestionCounts(counts);
+      setHiddenSources(hidden);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'exam_configs');
+    });
+
+    // Listen to questions
+    const q = query(collection(db, 'questions'));
+    const unsubscribeQuestions = onSnapshot(q, (snapshot) => {
+      const questions = snapshot.docs.map(doc => doc.data() as Question);
+      setAllQuestions(questions);
       setLoading(false);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'questions');
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeConfigs();
+      unsubscribeQuestions();
+    };
   }, []);
+
+  useEffect(() => {
+    // Process sources and counts whenever questions or hiddenSources change
+    const counts: Record<string, number> = {};
+    const uniqueSources = new Set<string>();
+    
+    allQuestions.forEach(q => {
+      if (q.source && q.source.trim() !== '' && q.source.toLowerCase() !== 'chung') {
+        if (!hiddenSources.has(q.source)) {
+          uniqueSources.add(q.source);
+          counts[q.source] = (counts[q.source] || 0) + 1;
+        }
+      }
+    });
+    
+    setSources(Array.from(uniqueSources).sort());
+    setQuestionCounts(counts);
+  }, [allQuestions, hiddenSources]);
 
   if (loading) {
     return (

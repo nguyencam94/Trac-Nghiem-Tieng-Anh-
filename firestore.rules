@@ -176,6 +176,11 @@ service cloud.firestore {
       allow delete: if isEditor() && (isAdmin() || resource.data.authorId == request.auth.uid);
     }
 
+    match /exam_configs/{sourceId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
     match /users/{userId} {
       allow read: if isAuthenticated(); // Allow all authenticated users to read profiles (needed for author display)
       allow create: if (isOwner(userId) && isValidUserCreate(request.resource.data) && 
