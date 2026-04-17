@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { SchoolAccount, OperationType } from '../types';
@@ -52,10 +52,10 @@ const ManageSchoolAccounts: React.FC = () => {
     }
   };
 
-  const filteredAccounts = accounts.filter(a => 
+  const filteredAccounts = useMemo(() => accounts.filter(a => 
     a.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
     a.schoolName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  ), [accounts, searchTerm]);
 
   return (
     <div className="space-y-8">

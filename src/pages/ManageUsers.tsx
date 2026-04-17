@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { collection, getDocs, updateDoc, doc, query, orderBy, setDoc, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { UserProfile, OperationType } from '../types';
@@ -86,9 +86,9 @@ const ManageUsers: React.FC = () => {
     }
   };
 
-  const filteredUsers = users.filter(u => 
+  const filteredUsers = useMemo(() => users.filter(u => 
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  ), [users, searchTerm]);
 
   if (loading) {
     return (

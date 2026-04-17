@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { collection, query, getDocs, orderBy, deleteDoc, doc, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ExamResult, OperationType } from '../types';
@@ -84,19 +84,21 @@ const ManageResults: React.FC = () => {
     }
   };
 
-  const filteredResults = results.filter(r => {
-    const matchesSearch = 
-      (r.studentName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-      (r.userEmail?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-      (r.examSource?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-      (r.schoolName?.toLowerCase() || "").includes(searchTerm.toLowerCase());
-    
-    const matchesClass = filterClass === "" || r.studentClass === filterClass;
-    const matchesSchool = filterSchool === "" || 
-      (r.schoolName?.trim().toLowerCase() === filterSchool.trim().toLowerCase());
-    
-    return matchesSearch && matchesClass && matchesSchool;
-  });
+  const filteredResults = useMemo(() => {
+    return results.filter(r => {
+      const matchesSearch = 
+        (r.studentName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+        (r.userEmail?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+        (r.examSource?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+        (r.schoolName?.toLowerCase() || "").includes(searchTerm.toLowerCase());
+      
+      const matchesClass = filterClass === "" || r.studentClass === filterClass;
+      const matchesSchool = filterSchool === "" || 
+        (r.schoolName?.trim().toLowerCase() === filterSchool.trim().toLowerCase());
+      
+      return matchesSearch && matchesClass && matchesSchool;
+    });
+  }, [results, searchTerm, filterClass, filterSchool]);
 
   const classes = Array.from(new Set(results.map(r => r.studentClass).filter(Boolean))).sort();
   const schools = Array.from(new Set([

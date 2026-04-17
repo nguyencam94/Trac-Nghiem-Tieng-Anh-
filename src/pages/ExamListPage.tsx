@@ -94,6 +94,23 @@ const ExamListPage: React.FC = () => {
         >
           Danh sách <span className="text-rose-600">Đề thi thử</span>
         </motion.h1>
+        {sources.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.15 }}
+            className="flex items-center justify-center gap-2 text-neutral-400 font-bold uppercase tracking-widest text-xs"
+          >
+            <div className="h-px w-8 bg-neutral-200" />
+            <span>
+              {searchTerm 
+                ? `Tìm thấy ${sources.filter(s => s.toLowerCase().includes(searchTerm.toLowerCase())).length}/${sources.length} đề thi`
+                : `Tổng cộng ${sources.length} đề thi`
+              }
+            </span>
+            <div className="h-px w-8 bg-neutral-200" />
+          </motion.div>
+        )}
         <motion.p 
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}

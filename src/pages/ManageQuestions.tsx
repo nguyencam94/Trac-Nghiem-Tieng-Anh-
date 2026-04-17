@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, where } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
@@ -15,6 +15,692 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { motion, AnimatePresence } from 'motion/react';
 import { parseQuestionsFromText, parseQuestionsFromFile, ParsedQuestion, translateExplanation } from '../services/aiService';
+
+const QuestionFormModal = React.memo(({
+    isOpen,
+    onClose,
+    editingId,
+    initialData,
+    categories,
+    exerciseTypes,
+    questions,
+    userUid,
+    authors,
+    uniqueSources,
+    onSuccess
+  }: {
+    isOpen: boolean;
+    onClose: () => void;
+    editingId: string | null;
+    initialData: any;
+    categories: Category[];
+    exerciseTypes: any[];
+    questions: Question[];
+    userUid?: string;
+    authors: UserProfile[];
+    uniqueSources: string[];
+    onSuccess: () => void;
+  }) => {
+    const [formData, setFormData] = useState(initialData);
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
+  
+    useEffect(() => {
+      setFormData(initialData);
+    }, [initialData]);
+  
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+  
+      if (!auth.currentUser) {
+        alert('Lỗi: Bạn chưa đăng nhập hoặc phiên làm việc đã hết hạn. Vui lòng tải lại trang.');
+        return;
+      }
+  
+      if (!file.type.startsWith('image/')) {
+        alert('Vui lòng chọn tệp hình ảnh.');
+        return;
+      }
+  
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Kích thước ảnh quá lớn. Vui lòng chọn ảnh dưới 5MB.');
+        return;
+      }
+  
+      setIsUploading(true);
+      setUploadProgress(0);
+      
+      try {
+        const storageRef = ref(storage, `question-images/${Date.now()}_${file.name}`);
+        const uploadTask = uploadBytesResumable(storageRef, file);
+  
+        uploadTask.on('state_changed', 
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            setUploadProgress(progress);
+          }, 
+          (error) => {
+            console.error("Upload Error:", error);
+            alert('Lỗi khi tải ảnh lên. Vui lòng thử lại.');
+            setIsUploading(false);
+          }, 
+          async () => {
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+            setFormData((prev: any) => ({ ...prev, imageUrl: downloadURL }));
+            setIsUploading(false);
+            setUploadProgress(100);
+          }
+        );
+      } catch (error) {
+        console.error("Storage Error:", error);
+        alert('Lỗi hệ thống khi tải ảnh.');
+        setIsUploading(false);
+      }
+    };
+  
+    const handleSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      
+      const isEssay = formData.exerciseType === 'essay';
+      const hasText = !!formData.text;
+      const hasCategory = !!formData.categoryId;
+      const hasValidOptions = isEssay ? true : (formData.options.length === 4 && formData.options.every((o: string) => !!o));
+      
+      if (!hasText || !hasCategory || !hasValidOptions) {
+        alert('Vui lòng điền đầy đủ thông tin (Câu hỏi, Danh mục và các Đáp án nếu là trắc nghiệm).');
+        return;
+      }
+  
+      try {
+        if (editingId) {
+          await updateDoc(doc(db, 'questions', editingId), formData);
+          
+          if (formData.passageId && formData.passageId.trim()) {
+            const otherQuestionsInGroup = questions.filter(q => 
+              q.passageId === formData.passageId && 
+              q.id !== editingId
+            );
+            
+            for (const otherQ of otherQuestionsInGroup) {
+              if (otherQ.passage !== formData.passage) {
+                await updateDoc(doc(db, 'questions', otherQ.id), { 
+                  passage: formData.passage 
+                });
+              }
+            }
+          }
+        } else {
+          const samePassageQuestions = questions.filter(q => q.passageId === formData.passageId && q.categoryId === formData.categoryId);
+          const maxOrder = samePassageQuestions.length > 0 
+            ? Math.max(...samePassageQuestions.map(q => q.order || 0)) 
+            : -1;
+  
+          await addDoc(collection(db, 'questions'), {
+            ...formData,
+            createdAt: new Date().toISOString(),
+            order: maxOrder + 1,
+            authorId: userUid
+          });
+        }
+        onSuccess();
+      } catch (error) {
+        handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, editingId ? `questions/${editingId}` : 'questions');
+      }
+    };
+  
+    return (
+      <AnimatePresence>
+        {isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={onClose}
+              className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-4xl max-h-[90vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-4 sm:p-6 border-b border-neutral-100 flex items-center justify-between bg-white sticky top-0 z-10">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-xl ${editingId ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                    {editingId ? <Edit2 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                  </div>
+                  <h2 className="text-xl font-black text-neutral-900">
+                    {editingId ? 'Sửa câu hỏi' : 'Thêm câu hỏi mới'}
+                  </h2>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="p-2 hover:bg-neutral-100 rounded-xl transition-colors text-neutral-400"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+  
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+                <form id="question-form" onSubmit={handleSubmit} className="space-y-6">
+                  <div className="space-y-1.5">
+                    <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Nội dung câu hỏi</label>
+                    <textarea
+                      value={formData.text}
+                      onChange={(e) => setFormData({ ...formData, text: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                          e.preventDefault();
+                          const target = e.target as HTMLTextAreaElement;
+                          const start = target.selectionStart;
+                          const end = target.selectionEnd;
+                          const value = formData.text;
+                          const newValue = value.substring(0, start) + "\n\n" + value.substring(end);
+                          setFormData({ ...formData, text: newValue });
+                          setTimeout(() => {
+                            target.selectionStart = target.selectionEnd = start + 2;
+                          }, 0);
+                        }
+                      }}
+                      className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none h-24 sm:h-32 text-sm sm:text-base transition-all"
+                      placeholder="Nhập câu hỏi..."
+                      required
+                    />
+                    <div className="flex items-center justify-between mt-1">
+                      <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
+                        <AlertCircle className="w-3 h-3" />
+                        <span>Dùng <strong>**chữ in đậm**</strong> để in đậm, <u>&lt;u&gt;gạch chân&lt;/u&gt;</u> để gạch chân.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const textarea = document.querySelector('textarea[placeholder="Nhập câu hỏi..."]') as HTMLTextAreaElement;
+                          if (textarea) {
+                            const start = textarea.selectionStart;
+                            const end = textarea.selectionEnd;
+                            const value = formData.text;
+                            const newValue = value.substring(0, start) + "\n\n" + value.substring(end);
+                            setFormData({ ...formData, text: newValue });
+                            textarea.focus();
+                            setTimeout(() => {
+                              textarea.selectionStart = textarea.selectionEnd = start + 2;
+                            }, 0);
+                          }
+                        }}
+                        className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-lg transition-all"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Ngắt đoạn (Ctrl + Enter)
+                      </button>
+                    </div>
+                  </div>
+  
+                  {formData.exerciseType === 'essay' ? (
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Cụm từ gợi ý (Bắt đầu bằng...)</label>
+                        <input
+                          type="text"
+                          value={formData.hint}
+                          onChange={(e) => setFormData({ ...formData, hint: e.target.value })}
+                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
+                          placeholder="Ví dụ: I wish..., She said that..."
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Đáp án tự luận / Trả lời ngắn</label>
+                        <textarea
+                          value={formData.essayAnswer}
+                          onChange={(e) => setFormData({ ...formData, essayAnswer: e.target.value })}
+                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none h-24 text-sm sm:text-base transition-all"
+                          placeholder="Nhập đáp án đúng hoặc hướng dẫn chấm..."
+                          required
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                      {formData.options.map((opt: string, idx: number) => (
+                        <div key={idx} className="space-y-1.5">
+                          <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Đáp án {String.fromCharCode(65 + idx)}</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={opt}
+                              onChange={(e) => {
+                                const newOpts = [...formData.options];
+                                newOpts[idx] = e.target.value;
+                                setFormData({ ...formData, options: newOpts });
+                              }}
+                              className="flex-1 bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
+                              placeholder={`Đáp án ${String.fromCharCode(65 + idx)}...`}
+                              required
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setFormData({ ...formData, correctOption: idx })}
+                              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border transition-all text-xs font-bold uppercase tracking-wider ${formData.correctOption === idx ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100' : 'bg-white border-neutral-200 text-neutral-400 hover:border-emerald-300 hover:text-emerald-600'}`}
+                            >
+                              <Check className="w-4 h-4" />
+                              <span className="hidden xs:inline">{formData.correctOption === idx ? 'Đúng' : 'Chọn'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+  
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                      <div className="space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Chủ đề</label>
+                        <select
+                          value={formData.categoryId}
+                          onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
+                          required
+                        >
+                          <option value="">Chọn chủ đề...</option>
+                          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Loại bài tập</label>
+                        <select
+                          value={formData.exerciseType}
+                          onChange={(e) => setFormData({ ...formData, exerciseType: e.target.value })}
+                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
+                          required
+                        >
+                          {exerciseTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                      </div>
+                    </div>
+  
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                      <div className="space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Hình ảnh câu hỏi</label>
+                        <div className="flex flex-col gap-3">
+                          <div className="flex gap-2">
+                            <div className="relative flex-1">
+                              <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                              <input
+                                type="text"
+                                value={formData.imageUrl}
+                                onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                                className="w-full bg-neutral-50 border border-neutral-200 rounded-xl pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
+                                placeholder="Dán link ảnh (Direct Link)..."
+                              />
+                            </div>
+                            <label className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 border-dashed cursor-pointer transition-all font-bold text-sm ${isUploading ? 'bg-neutral-50 border-neutral-200 text-neutral-400' : 'bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100'}`}>
+                              {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                              <span>{isUploading ? `Đang tải (${Math.round(uploadProgress)}%)` : 'Tải ảnh lên'}</span>
+                              <input 
+                                type="file" 
+                                accept="image/*" 
+                                className="hidden" 
+                                onChange={handleImageUpload}
+                                disabled={isUploading}
+                              />
+                            </label>
+                          </div>
+                          {formData.imageUrl && (
+                            <div className="relative w-fit group">
+                              <img 
+                                src={formData.imageUrl} 
+                                alt="Preview" 
+                                className="h-20 sm:h-24 w-auto rounded-xl border border-neutral-200 shadow-sm"
+                                referrerPolicy="no-referrer"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setFormData({ ...formData, imageUrl: '' })}
+                                className="absolute top-2 right-2 p-1.5 bg-white/90 backdrop-blur-sm text-rose-600 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-50"
+                                title="Xóa ảnh"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-neutral-400 mt-1">Dán link ảnh hoặc tải ảnh trực tiếp từ máy tính của bạn.</p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Giải thích (tùy chọn)</label>
+                        <input
+                          type="text"
+                          value={formData.explanation}
+                          onChange={(e) => setFormData({ ...formData, explanation: e.target.value })}
+                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
+                          placeholder="Giải thích..."
+                        />
+                        <div className="flex items-center gap-1.5 text-[10px] text-neutral-400 mt-1">
+                          <AlertCircle className="w-3 h-3" />
+                          <span>Dùng <strong>**chữ in đậm**</strong> để in đậm, <u>&lt;u&gt;gạch chân&lt;/u&gt;</u> để gạch chân.</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Nguồn đề thi (tùy chọn)</label>
+                        <input
+                          type="text"
+                          value={formData.source}
+                          onChange={(e) => setFormData({ ...formData, source: e.target.value })}
+                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
+                          placeholder="Ví dụ: Đề thi THPT 2023, Đề minh họa..."
+                        />
+                        {uniqueSources.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {uniqueSources.map(source => (
+                              <button
+                                key={source}
+                                type="button"
+                                onClick={() => setFormData({ ...formData, source })}
+                                className="text-[10px] font-bold px-2 py-1 rounded-lg bg-neutral-100 text-neutral-600 hover:bg-blue-50 hover:text-blue-600 transition-all border border-neutral-200"
+                              >
+                                {source}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-[10px] text-neutral-400 mt-1">Để trống hoặc điền "chung" nếu không có nguồn cụ thể.</p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Độ khó</label>
+                        <div className="flex gap-2">
+                          {[1, 2, 3].map((level) => (
+                            <button
+                              key={level}
+                              type="button"
+                              onClick={() => setFormData({ ...formData, difficulty: level })}
+                              className={`flex-1 py-2.5 rounded-xl border font-bold text-sm transition-all ${
+                                formData.difficulty === level
+                                  ? level === 1 ? 'bg-emerald-600 border-emerald-200 text-white shadow-lg shadow-emerald-100' :
+                                    level === 2 ? 'bg-amber-500 border-amber-200 text-white shadow-lg shadow-amber-100' :
+                                    'bg-rose-600 border-rose-200 text-white shadow-lg shadow-rose-100'
+                                  : 'bg-white border-neutral-200 text-neutral-400 hover:border-neutral-300'
+                              }`}
+                            >
+                              {level === 1 ? 'Dễ' : level === 2 ? 'Vừa' : 'Khó'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+  
+                  <div className="bg-neutral-50 p-4 sm:p-6 rounded-2xl border border-neutral-200 space-y-4">
+                    <div className="flex items-center gap-2 text-neutral-900">
+                      <BookOpen className="w-5 h-5" />
+                      <h3 className="font-bold text-sm sm:text-base uppercase tracking-wider">Phần đọc hiểu (Tùy chọn)</h3>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:gap-6">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Nội dung bài đọc</label>
+                        <textarea
+                          value={formData.passage}
+                          onChange={(e) => setFormData({ ...formData, passage: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                              e.preventDefault();
+                              const target = e.target as HTMLTextAreaElement;
+                              const start = target.selectionStart;
+                              const end = target.selectionEnd;
+                              const value = formData.passage;
+                              const newValue = value.substring(0, start) + "\n\n" + value.substring(end);
+                              setFormData({ ...formData, passage: newValue });
+                              setTimeout(() => {
+                                target.selectionStart = target.selectionEnd = start + 2;
+                              }, 0);
+                            }
+                          }}
+                          className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none h-[500px] text-sm transition-all font-serif leading-relaxed"
+                          placeholder="Dán nội dung bài đọc hiểu vào đây (3-4 đoạn văn)..."
+                        />
+                        <div className="flex items-center justify-between mt-1">
+                          <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
+                            <AlertCircle className="w-3 h-3" />
+                            <span>Dùng <strong>**chữ in đậm**</strong> để in đậm văn bản.</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const textarea = document.querySelector('textarea[placeholder*="Dán nội dung bài đọc"]') as HTMLTextAreaElement;
+                              if (textarea) {
+                                const start = textarea.selectionStart;
+                                const end = textarea.selectionEnd;
+                                const value = formData.passage;
+                                const newValue = value.substring(0, start) + "\n\n" + value.substring(end);
+                                setFormData({ ...formData, passage: newValue });
+                                textarea.focus();
+                                setTimeout(() => {
+                                  textarea.selectionStart = textarea.selectionEnd = start + 2;
+                                }, 0);
+                              }
+                            }}
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-lg transition-all"
+                          >
+                            <Plus className="w-3 h-3" />
+                            Ngắt đoạn (Ctrl + Enter)
+                          </button>
+                        </div>
+                        {formData.passageId && questions.filter(q => q.passageId === formData.passageId && q.id !== editingId).length > 0 && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded-lg mt-2">
+                            <Info className="w-3 h-3" />
+                            <span>Lưu ý: Thay đổi nội dung bài đọc sẽ tự động cập nhật cho {questions.filter(q => q.passageId === formData.passageId && q.id !== editingId).length} câu hỏi khác có cùng mã "{formData.passageId}".</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Mã bài đọc</label>
+                        <input
+                          type="text"
+                          value={formData.passageId}
+                          onChange={(e) => setFormData({ ...formData, passageId: e.target.value })}
+                          className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm transition-all"
+                          placeholder="Ví dụ: doc_hieu_01"
+                        />
+                        <p className="text-[10px] text-neutral-400 leading-tight mt-1">
+                          Các câu hỏi có cùng mã này sẽ được hiển thị chung dưới một bài đọc.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </form>
+              </div>
+  
+              <div className="p-4 sm:p-6 border-t border-neutral-100 bg-neutral-50 flex flex-col sm:flex-row gap-3 sm:justify-end">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-6 py-2.5 rounded-xl font-bold text-neutral-500 hover:bg-neutral-200 transition-all text-sm sm:text-base"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  form="question-form"
+                  type="submit"
+                  className={`px-8 py-2.5 rounded-xl font-bold text-white transition-all shadow-lg text-sm sm:text-base ${editingId ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100'}`}
+                >
+                  {editingId ? 'Cập nhật câu hỏi' : 'Lưu câu hỏi'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    );
+  });
+
+const QuestionCard = React.memo(({ 
+  q, 
+  categories, 
+  exerciseTypes, 
+  isRecent, 
+  canEdit, 
+  onEdit, 
+  onDelete, 
+  userUid, 
+  authors 
+}: { 
+  q: Question, 
+  categories: Category[], 
+  exerciseTypes: any[], 
+  isRecent: boolean, 
+  canEdit: boolean, 
+  onEdit: (q: Question) => void, 
+  onDelete: (id: string) => void, 
+  userUid?: string, 
+  authors: UserProfile[] 
+}) => {
+  return (
+    <div 
+      className={`bg-white p-4 sm:p-6 rounded-2xl border transition-all relative overflow-hidden ${
+        isRecent 
+          ? 'border-blue-400 shadow-md ring-1 ring-blue-100' 
+          : 'border-neutral-200 shadow-sm hover:shadow-md'
+      }`}
+    >
+      {isRecent && (
+        <div className="absolute top-0 right-0">
+          <div className="bg-blue-600 text-white text-[8px] sm:text-[10px] font-black px-3 py-1 rounded-bl-xl uppercase tracking-widest shadow-sm flex items-center gap-1">
+            <Sparkles className="w-2.5 h-2.5" />
+            Mới cập nhật
+          </div>
+        </div>
+      )}
+      <div className="flex justify-between items-start gap-3 mb-3 sm:mb-4">
+      <div className="space-y-0.5 sm:space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] sm:text-xs font-bold text-blue-600 uppercase tracking-wider">
+            {categories.find(c => c.id === q.categoryId)?.name || 'N/A'}
+          </span>
+          <span className="text-[10px] sm:text-xs font-bold text-neutral-400 uppercase tracking-wider">
+            • {exerciseTypes.find(t => t.id === q.exerciseType)?.name || 'Chọn đáp án'}
+          </span>
+          <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border uppercase tracking-tighter ${
+            q.difficulty === 1 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
+            q.difficulty === 2 ? 'bg-amber-50 text-amber-600 border-amber-200' :
+            'bg-rose-50 text-rose-600 border-rose-200'
+          }`}>
+            {q.difficulty === 1 ? 'Dễ' : q.difficulty === 2 ? 'Vừa' : 'Khó'}
+          </span>
+          {(q.passage || q.passageId) && (
+            <span className="flex items-center gap-1 bg-amber-50 text-amber-600 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-200 uppercase tracking-tighter">
+              <BookOpen className="w-2.5 h-2.5" />
+              {q.passageId ? `Đọc hiểu: ${q.passageId}` : 'Có bài đọc'}
+            </span>
+          )}
+          {q.authorId && (
+            <span className="flex items-center gap-1 bg-neutral-50 text-neutral-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-neutral-200 uppercase tracking-tighter">
+              <User className="w-2.5 h-2.5" />
+              {q.authorId === userUid ? 'Của tôi' : (authors.find(a => a.uid === q.authorId)?.email.split('@')[0] || 'Người khác')}
+            </span>
+          )}
+        </div>
+        <div className="text-base sm:text-lg font-medium text-neutral-900 leading-tight prose prose-neutral max-w-none font-serif">
+          <ReactMarkdown
+            rehypePlugins={[rehypeRaw]}
+            remarkPlugins={[remarkGfm, remarkBreaks]}
+            components={{
+              strong: ({ ...props }) => <strong className="font-black text-neutral-950" {...props} />,
+              u: ({ ...props }) => <u className="decoration-blue-400 decoration-2 underline-offset-4" {...props} />
+            }}
+          >
+            {q.source && q.source.toLowerCase() !== 'chung' ? `**[${q.source}]** ${q.text}` : q.text}
+          </ReactMarkdown>
+        </div>
+        {q.imageUrl && (
+          <div className="mt-2 rounded-lg overflow-hidden border border-neutral-100 bg-neutral-50 w-fit max-w-[200px] group cursor-zoom-in">
+            <img 
+              src={q.imageUrl} 
+              alt="Preview" 
+              className="w-full h-auto object-contain max-h-[120px] transition-transform group-hover:scale-105"
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.src = 'https://placehold.co/400x300?text=Lỗi+tải+ảnh';
+              }}
+            />
+          </div>
+        )}
+      </div>
+      <div className="flex gap-1 sm:gap-2 shrink-0">
+        {canEdit && (
+          <>
+            <button onClick={() => onEdit(q)} className="p-1.5 sm:px-3 sm:py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
+              <Edit2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Sửa</span>
+            </button>
+            <button onClick={() => onDelete(q.id)} className="p-1.5 sm:px-3 sm:py-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
+              <Trash2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Xóa</span>
+            </button>
+          </>
+        )}
+      </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4">
+        {q.exerciseType === 'essay' ? (
+          <div className="col-span-1 sm:col-span-2 p-3 bg-neutral-50 rounded-xl border border-neutral-100 italic text-sm text-neutral-600">
+            <p className="font-bold text-neutral-900 not-italic mb-1">Câu trả lời:</p>
+            {q.essayAnswer}
+          </div>
+        ) : (
+          (q.options || []).map((option, idx) => (
+            <div 
+              key={idx}
+              className={`flex items-start gap-3 p-3 rounded-xl border text-sm transition-all ${
+                idx === q.correctOption 
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-bold' 
+                  : 'bg-neutral-50 border-neutral-100 text-neutral-600'
+              }`}
+            >
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 border-2 font-black text-xs ${
+                idx === q.correctOption 
+                  ? 'bg-emerald-600 border-emerald-600 text-white' 
+                  : 'bg-white border-neutral-300 text-neutral-400'
+              }`}>
+                {String.fromCharCode(65 + idx)}
+              </div>
+              <span className="flex-1 break-words">{option}</span>
+              {idx === q.correctOption && <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />}
+            </div>
+          ))
+        )}
+      </div>
+
+      {q.explanation && (
+        <div className="mt-4 p-4 bg-blue-50/50 rounded-xl border border-blue-100/50 space-y-2">
+          <div className="flex items-center gap-1.5 text-blue-600">
+            <Sparkles className="w-4 h-4" />
+            <span className="text-xs font-black uppercase tracking-widest">Giải thích chi tiết</span>
+          </div>
+          <div className="text-sm text-neutral-700 leading-relaxed font-sans prose prose-blue prose-sm max-w-none">
+            <ReactMarkdown
+              rehypePlugins={[rehypeRaw]}
+              remarkPlugins={[remarkGfm, remarkBreaks]}
+              components={{
+                strong: ({ ...props }) => <strong className="font-bold text-neutral-900" {...props} />,
+                u: ({ ...props }) => <u className="decoration-blue-300 underline-offset-2" {...props} />,
+                code: ({ ...props }) => <code className="bg-blue-100 text-blue-700 px-1 rounded" {...props} />
+              }}
+            >
+              {q.explanation}
+            </ReactMarkdown>
+          </div>
+        </div>
+      )}
+      
+      {q.hint && (
+        <div className="mt-3 flex items-center gap-1.5 text-rose-600 bg-rose-50/50 p-2 rounded-lg border border-rose-100/50 w-fit">
+          <Info className="w-3.5 h-3.5" />
+          <span className="text-[10px] font-bold">Gợi ý: {q.hint}</span>
+        </div>
+      )}
+    </div>
+  );
+});
 
 const ManageQuestions: React.FC = () => {
   const navigate = useNavigate();
@@ -47,8 +733,6 @@ const ManageQuestions: React.FC = () => {
   const [duplicateGroups, setDuplicateGroups] = useState<{ text: string, items: Question[] }[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [isTranslateConfirmOpen, setIsTranslateConfirmOpen] = useState(false);
   const [translationStatus, setTranslationStatus] = useState<{ total: number, current: number, success: number } | null>(null);
 
@@ -69,7 +753,7 @@ const ManageQuestions: React.FC = () => {
     hint: '',
   });
 
-  const exerciseTypes = [
+  const exerciseTypes = useMemo(() => [
     { id: 'multiple_choice', name: 'Chọn đáp án đúng (A, B, C, D)' },
     { id: 'picture_guess', name: 'Nhìn tranh đoán đáp án' },
     { id: 'fill_blank', name: 'Điền vào chỗ trống' },
@@ -81,7 +765,7 @@ const ManageQuestions: React.FC = () => {
     { id: 'reading_comprehension', name: 'Đọc hiểu' },
     { id: 'essay', name: 'Tự luận / Trả lời ngắn' },
     { id: 'other', name: 'Khác' },
-  ];
+  ], []);
 
   useEffect(() => {
     if (authLoading) return;
@@ -117,122 +801,6 @@ const ManageQuestions: React.FC = () => {
       unsubUsers();
     };
   }, [profile, authLoading, navigate]);
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!auth.currentUser) {
-      alert('Lỗi: Bạn chưa đăng nhập hoặc phiên làm việc đã hết hạn. Vui lòng tải lại trang.');
-      return;
-    }
-
-    if (!file.type.startsWith('image/')) {
-      alert('Vui lòng chọn tệp hình ảnh.');
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Kích thước ảnh quá lớn. Vui lòng chọn ảnh dưới 5MB.');
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadProgress(0);
-    
-    try {
-      const storageRef = ref(storage, `question-images/${Date.now()}_${file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
-
-      uploadTask.on('state_changed', 
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(progress);
-          console.log('Upload is ' + progress + '% done');
-        }, 
-        (error) => {
-          console.error("Full Upload Error Object:", error);
-          let message = 'Có lỗi xảy ra khi tải ảnh lên.';
-          if (error.code === 'storage/unauthorized') {
-            message = 'Lỗi 403: Firebase từ chối quyền truy cập. Hãy đảm bảo bạn đã cập nhật Rules trong Firebase Console như tôi đã hướng dẫn.';
-          } else if (error.code === 'storage/retry-limit-exceeded') {
-            message = 'Lỗi: Quá thời gian tải lên. Vui lòng kiểm tra kết nối mạng.';
-          }
-          alert(message + '\n\nChi tiết: ' + error.message);
-          setIsUploading(false);
-        }, 
-        async () => {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          setFormData(prev => ({ ...prev, imageUrl: downloadURL }));
-          setIsUploading(false);
-          setUploadProgress(0);
-        }
-      );
-    } catch (error) {
-      console.error("Upload Catch Error:", error);
-      alert('Lỗi hệ thống khi chuẩn bị tải ảnh.');
-      setIsUploading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validation
-    const isEssay = formData.exerciseType === 'essay';
-    const hasText = !!formData.text;
-    const hasCategory = !!formData.categoryId;
-    const hasValidOptions = isEssay ? true : (formData.options.length === 4 && formData.options.every(o => !!o));
-    
-    if (!hasText || !hasCategory || !hasValidOptions) {
-      alert('Vui lòng điền đầy đủ thông tin (Câu hỏi, Danh mục và các Đáp án nếu là trắc nghiệm).');
-      return;
-    }
-
-    try {
-      if (editingId) {
-        await updateDoc(doc(db, 'questions', editingId), formData);
-        
-        // Sync passage across the same passageId group if it exists
-        if (formData.passageId && formData.passageId.trim()) {
-          const otherQuestionsInGroup = questions.filter(q => 
-            q.passageId === formData.passageId && 
-            q.id !== editingId
-          );
-          
-          // Update all other questions in the group to have the same passage text
-          for (const otherQ of otherQuestionsInGroup) {
-            if (otherQ.passage !== formData.passage) {
-              await updateDoc(doc(db, 'questions', otherQ.id), { 
-                passage: formData.passage 
-              });
-            }
-          }
-        }
-        
-        setEditingId(null);
-      } else {
-        // Find the highest order in the current category/passage to append
-        const samePassageQuestions = questions.filter(q => q.passageId === formData.passageId && q.categoryId === formData.categoryId);
-        const maxOrder = samePassageQuestions.length > 0 
-          ? Math.max(...samePassageQuestions.map(q => q.order || 0)) 
-          : -1;
-
-        await addDoc(collection(db, 'questions'), {
-          ...formData,
-          createdAt: new Date().toISOString(),
-          order: maxOrder + 1,
-          authorId: user?.uid
-        });
-      }
-
-      setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '', essayAnswer: '', hint: '' });
-      setIsModalOpen(false);
-      setEditingId(null);
-    } catch (error) {
-      handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, editingId ? `questions/${editingId}` : 'questions');
-    }
-  };
 
   const handleTranslateAll = async () => {
     const questionsToTranslate = questions.filter(q => q.explanation && q.explanation.trim());
@@ -330,20 +898,22 @@ const ManageQuestions: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const filteredQuestions = questions.filter(q => {
-    const categoryMatch = selectedCategory === 'all' || q.categoryId === selectedCategory;
-    const difficultyMatch = selectedDifficulty === 'all' || q.difficulty?.toString() === selectedDifficulty;
-    const exerciseTypeMatch = selectedExerciseType === 'all' || q.exerciseType === selectedExerciseType;
-    const sourceValue = q.source || 'Nguồn tổng hợp';
-    const sourceMatch = selectedSource === 'all' || sourceValue === selectedSource;
-    const authorMatch = selectedAuthor === 'all' || q.authorId === selectedAuthor;
-    const searchMatch = !searchQuery || q.text.toLowerCase().includes(searchQuery.toLowerCase());
-    return categoryMatch && difficultyMatch && exerciseTypeMatch && sourceMatch && authorMatch && searchMatch;
-  });
+  const filteredQuestions = useMemo(() => {
+    return questions.filter(q => {
+      const categoryMatch = selectedCategory === 'all' || q.categoryId === selectedCategory;
+      const difficultyMatch = selectedDifficulty === 'all' || q.difficulty?.toString() === selectedDifficulty;
+      const exerciseTypeMatch = selectedExerciseType === 'all' || q.exerciseType === selectedExerciseType;
+      const sourceValue = q.source || 'Nguồn tổng hợp';
+      const sourceMatch = selectedSource === 'all' || sourceValue === selectedSource;
+      const authorMatch = selectedAuthor === 'all' || q.authorId === selectedAuthor;
+      const searchMatch = !searchQuery || q.text.toLowerCase().includes(searchQuery.toLowerCase());
+      return categoryMatch && difficultyMatch && exerciseTypeMatch && sourceMatch && authorMatch && searchMatch;
+    });
+  }, [questions, selectedCategory, selectedDifficulty, selectedExerciseType, selectedSource, selectedAuthor, searchQuery]);
 
-  const recentIds = questions.slice(0, 30).map(q => q.id);
+  const recentIds = useMemo(() => questions.slice(0, 30).map(q => q.id), [questions]);
 
-  const uniqueSources = Array.from(new Set(questions.map(q => q.source || 'Nguồn tổng hợp'))) as string[];
+  const uniqueSources = useMemo(() => Array.from(new Set(questions.map(q => q.source || 'Nguồn tổng hợp'))) as string[], [questions]);
 
   const handleAiParse = async () => {
     if (!bulkRawText.trim()) return;
@@ -583,393 +1153,23 @@ const ManageQuestions: React.FC = () => {
         </div>
       </div>
 
-      <AnimatePresence>
-        {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsModalOpen(false)}
-              className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-4xl max-h-[90vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col"
-            >
-              <div className="p-4 sm:p-6 border-b border-neutral-100 flex items-center justify-between bg-white sticky top-0 z-10">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-xl ${editingId ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                    {editingId ? <Edit2 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-                  </div>
-                  <h2 className="text-xl font-black text-neutral-900">
-                    {editingId ? 'Sửa câu hỏi' : 'Thêm câu hỏi mới'}
-                  </h2>
-                </div>
-                <button
-                  onClick={() => setIsModalOpen(false)}
-                  className="p-2 hover:bg-neutral-100 rounded-xl transition-colors text-neutral-400"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-                <form id="question-form" onSubmit={handleSubmit} className="space-y-6">
-                  <div className="space-y-1.5">
-                    <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Nội dung câu hỏi</label>
-                    <textarea
-                      value={formData.text}
-                      onChange={(e) => setFormData({ ...formData, text: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                          e.preventDefault();
-                          const target = e.target as HTMLTextAreaElement;
-                          const start = target.selectionStart;
-                          const end = target.selectionEnd;
-                          const value = formData.text;
-                          const newValue = value.substring(0, start) + "\n\n" + value.substring(end);
-                          setFormData({ ...formData, text: newValue });
-                          setTimeout(() => {
-                            target.selectionStart = target.selectionEnd = start + 2;
-                          }, 0);
-                        }
-                      }}
-                      className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none h-24 sm:h-32 text-sm sm:text-base transition-all"
-                      placeholder="Nhập câu hỏi..."
-                      required
-                    />
-                    <div className="flex items-center justify-between mt-1">
-                      <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
-                        <AlertCircle className="w-3 h-3" />
-                        <span>Dùng <strong>**chữ in đậm**</strong> để in đậm, <u>&lt;u&gt;gạch chân&lt;/u&gt;</u> để gạch chân.</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const textarea = document.querySelector('textarea[placeholder="Nhập câu hỏi..."]') as HTMLTextAreaElement;
-                          if (textarea) {
-                            const start = textarea.selectionStart;
-                            const end = textarea.selectionEnd;
-                            const value = formData.text;
-                            const newValue = value.substring(0, start) + "\n\n" + value.substring(end);
-                            setFormData({ ...formData, text: newValue });
-                            textarea.focus();
-                            setTimeout(() => {
-                              textarea.selectionStart = textarea.selectionEnd = start + 2;
-                            }, 0);
-                          }
-                        }}
-                        className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-lg transition-all"
-                      >
-                        <Plus className="w-3 h-3" />
-                        Ngắt đoạn (Ctrl + Enter)
-                      </button>
-                    </div>
-                  </div>
-
-                  {formData.exerciseType === 'essay' ? (
-                    <div className="grid grid-cols-1 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Cụm từ gợi ý (Bắt đầu bằng...)</label>
-                        <input
-                          type="text"
-                          value={formData.hint}
-                          onChange={(e) => setFormData({ ...formData, hint: e.target.value })}
-                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
-                          placeholder="Ví dụ: I wish..., She said that..."
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Đáp án tự luận / Trả lời ngắn</label>
-                        <textarea
-                          value={formData.essayAnswer}
-                          onChange={(e) => setFormData({ ...formData, essayAnswer: e.target.value })}
-                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none h-24 text-sm sm:text-base transition-all"
-                          placeholder="Nhập đáp án đúng hoặc hướng dẫn chấm..."
-                          required
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                      {formData.options.map((opt, idx) => (
-                        <div key={idx} className="space-y-1.5">
-                          <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Đáp án {String.fromCharCode(65 + idx)}</label>
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              value={opt}
-                              onChange={(e) => {
-                                const newOpts = [...formData.options];
-                                newOpts[idx] = e.target.value;
-                                setFormData({ ...formData, options: newOpts });
-                              }}
-                              className="flex-1 bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
-                              placeholder={`Đáp án ${String.fromCharCode(65 + idx)}...`}
-                              required
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setFormData({ ...formData, correctOption: idx })}
-                              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border transition-all text-xs font-bold uppercase tracking-wider ${formData.correctOption === idx ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100' : 'bg-white border-neutral-200 text-neutral-400 hover:border-emerald-300 hover:text-emerald-600'}`}
-                            >
-                              <Check className="w-4 h-4" />
-                              <span className="hidden xs:inline">{formData.correctOption === idx ? 'Đúng' : 'Chọn'}</span>
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                      <div className="space-y-1.5">
-                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Chủ đề</label>
-                        <select
-                          value={formData.categoryId}
-                          onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
-                          required
-                        >
-                          <option value="">Chọn chủ đề...</option>
-                          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Loại bài tập</label>
-                        <select
-                          value={formData.exerciseType}
-                          onChange={(e) => setFormData({ ...formData, exerciseType: e.target.value })}
-                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
-                          required
-                        >
-                          {exerciseTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                      <div className="space-y-1.5">
-                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Hình ảnh câu hỏi</label>
-                        <div className="flex flex-col gap-3">
-                          <div className="flex gap-2">
-                            <div className="relative flex-1">
-                              <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-                              <input
-                                type="text"
-                                value={formData.imageUrl}
-                                onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
-                                className="w-full bg-neutral-50 border border-neutral-200 rounded-xl pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
-                                placeholder="Dán link ảnh (Direct Link)..."
-                              />
-                            </div>
-                            <label className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 border-dashed cursor-pointer transition-all font-bold text-sm ${isUploading ? 'bg-neutral-50 border-neutral-200 text-neutral-400' : 'bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100'}`}>
-                              {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                              <span>{isUploading ? `Đang tải (${Math.round(uploadProgress)}%)` : 'Tải ảnh lên'}</span>
-                              <input 
-                                type="file" 
-                                accept="image/*" 
-                                className="hidden" 
-                                onChange={handleImageUpload}
-                                disabled={isUploading}
-                              />
-                            </label>
-                          </div>
-                          
-                          {formData.imageUrl && !formData.imageUrl.includes('firebasestorage.googleapis.com') && !formData.imageUrl.match(/\.(jpeg|jpg|gif|png|webp|svg|avif)(\?.*)?$/i) && (
-                            <div className="flex items-center gap-1.5 text-[10px] text-amber-600 bg-amber-50 px-2 py-1 rounded-lg">
-                              <AlertCircle className="w-3 h-3" />
-                              <span>Lưu ý: Link ảnh có vẻ không hợp lệ. Nếu dùng Postimages, hãy chọn <strong>Direct Link</strong> (Link trực tiếp).</span>
-                            </div>
-                          )}
-                          
-                          {formData.imageUrl && (
-                            <div className="relative w-full max-w-md aspect-video rounded-2xl border border-neutral-200 overflow-hidden bg-neutral-50 group">
-                              <img 
-                                src={formData.imageUrl} 
-                                alt="Preview" 
-                                className="w-full h-full object-contain"
-                                referrerPolicy="no-referrer"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setFormData(prev => ({ ...prev, imageUrl: '' }))}
-                                className="absolute top-2 right-2 p-1.5 bg-white/90 backdrop-blur-sm text-rose-600 rounded-lg shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-50"
-                                title="Xóa ảnh"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-neutral-400 mt-1">Dán link ảnh hoặc tải ảnh trực tiếp từ máy tính của bạn.</p>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Giải thích (tùy chọn)</label>
-                        <input
-                          type="text"
-                          value={formData.explanation}
-                          onChange={(e) => setFormData({ ...formData, explanation: e.target.value })}
-                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
-                          placeholder="Giải thích..."
-                        />
-                        <div className="flex items-center gap-1.5 text-[10px] text-neutral-400 mt-1">
-                          <AlertCircle className="w-3 h-3" />
-                          <span>Dùng <strong>**chữ in đậm**</strong> để in đậm, <u>&lt;u&gt;gạch chân&lt;/u&gt;</u> để gạch chân.</span>
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Nguồn đề thi (tùy chọn)</label>
-                        <input
-                          type="text"
-                          value={formData.source}
-                          onChange={(e) => setFormData({ ...formData, source: e.target.value })}
-                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
-                          placeholder="Ví dụ: Đề thi THPT 2023, Đề minh họa..."
-                        />
-                        {uniqueSources.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 mt-2">
-                            {uniqueSources.map(source => (
-                              <button
-                                key={source}
-                                type="button"
-                                onClick={() => setFormData({ ...formData, source })}
-                                className="text-[10px] font-bold px-2 py-1 rounded-lg bg-neutral-100 text-neutral-600 hover:bg-blue-50 hover:text-blue-600 transition-all border border-neutral-200"
-                              >
-                                {source}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        <p className="text-[10px] text-neutral-400 mt-1">Để trống hoặc điền "chung" nếu không có nguồn cụ thể.</p>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Độ khó</label>
-                        <div className="flex gap-2">
-                          {[1, 2, 3].map((level) => (
-                            <button
-                              key={level}
-                              type="button"
-                              onClick={() => setFormData({ ...formData, difficulty: level })}
-                              className={`flex-1 py-2.5 rounded-xl border font-bold text-sm transition-all ${
-                                formData.difficulty === level
-                                  ? level === 1 ? 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100' :
-                                    level === 2 ? 'bg-amber-500 border-amber-500 text-white shadow-lg shadow-amber-100' :
-                                    'bg-rose-600 border-rose-600 text-white shadow-lg shadow-rose-100'
-                                  : 'bg-white border-neutral-200 text-neutral-400 hover:border-neutral-300'
-                              }`}
-                            >
-                              {level === 1 ? 'Dễ' : level === 2 ? 'Vừa' : 'Khó'}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                  <div className="bg-neutral-50 p-4 sm:p-6 rounded-2xl border border-neutral-200 space-y-4">
-                    <div className="flex items-center gap-2 text-neutral-900">
-                      <BookOpen className="w-5 h-5" />
-                      <h3 className="font-bold text-sm sm:text-base uppercase tracking-wider">Phần đọc hiểu (Tùy chọn)</h3>
-                    </div>
-                    <div className="grid grid-cols-1 gap-4 sm:gap-6">
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Nội dung bài đọc</label>
-                        <textarea
-                          value={formData.passage}
-                          onChange={(e) => setFormData({ ...formData, passage: e.target.value })}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                              e.preventDefault();
-                              const target = e.target as HTMLTextAreaElement;
-                              const start = target.selectionStart;
-                              const end = target.selectionEnd;
-                              const value = formData.passage;
-                              const newValue = value.substring(0, start) + "\n\n" + value.substring(end);
-                              setFormData({ ...formData, passage: newValue });
-                              // Use setTimeout to set selection after state update
-                              setTimeout(() => {
-                                target.selectionStart = target.selectionEnd = start + 2;
-                              }, 0);
-                            }
-                          }}
-                          className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none h-[500px] text-sm transition-all font-serif leading-relaxed"
-                          placeholder="Dán nội dung bài đọc hiểu vào đây (3-4 đoạn văn)..."
-                        />
-                        <div className="flex items-center justify-between mt-1">
-                          <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
-                            <AlertCircle className="w-3 h-3" />
-                            <span>Dùng <strong>**chữ in đậm**</strong> để in đậm văn bản.</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const textarea = document.querySelector('textarea[placeholder*="Dán nội dung bài đọc"]') as HTMLTextAreaElement;
-                              if (textarea) {
-                                const start = textarea.selectionStart;
-                                const end = textarea.selectionEnd;
-                                const value = formData.passage;
-                                const newValue = value.substring(0, start) + "\n\n" + value.substring(end);
-                                setFormData({ ...formData, passage: newValue });
-                                textarea.focus();
-                                setTimeout(() => {
-                                  textarea.selectionStart = textarea.selectionEnd = start + 2;
-                                }, 0);
-                              }
-                            }}
-                            className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-lg transition-all"
-                          >
-                            <Plus className="w-3 h-3" />
-                            Ngắt đoạn (Ctrl + Enter)
-                          </button>
-                        </div>
-                        {formData.passageId && questions.filter(q => q.passageId === formData.passageId && q.id !== editingId).length > 0 && (
-                          <div className="flex items-center gap-1.5 text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded-lg mt-2">
-                            <Info className="w-3 h-3" />
-                            <span>Lưu ý: Thay đổi nội dung bài đọc sẽ tự động cập nhật cho {questions.filter(q => q.passageId === formData.passageId && q.id !== editingId).length} câu hỏi khác có cùng mã "{formData.passageId}".</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-neutral-600 uppercase tracking-wider">Mã bài đọc</label>
-                        <input
-                          type="text"
-                          value={formData.passageId}
-                          onChange={(e) => setFormData({ ...formData, passageId: e.target.value })}
-                          className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm transition-all"
-                          placeholder="Ví dụ: doc_hieu_01"
-                        />
-                        <p className="text-[10px] text-neutral-400 leading-tight mt-1">
-                          Các câu hỏi có cùng mã này sẽ được hiển thị chung dưới một bài đọc.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </form>
-              </div>
-
-              <div className="p-4 sm:p-6 border-t border-neutral-100 bg-neutral-50 flex flex-col sm:flex-row gap-3 sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-6 py-2.5 rounded-xl font-bold text-neutral-500 hover:bg-neutral-200 transition-all text-sm sm:text-base"
-                >
-                  Hủy bỏ
-                </button>
-                <button
-                  form="question-form"
-                  type="submit"
-                  className={`px-8 py-2.5 rounded-xl font-bold text-white transition-all shadow-lg text-sm sm:text-base ${editingId ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-100' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100'}`}
-                >
-                  {editingId ? 'Cập nhật câu hỏi' : 'Lưu câu hỏi'}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <QuestionFormModal
+        isOpen={isModalOpen}
+        onClose={() => { setIsModalOpen(false); setEditingId(null); }}
+        editingId={editingId}
+        initialData={formData}
+        categories={categories}
+        exerciseTypes={exerciseTypes}
+        questions={questions}
+        userUid={user?.uid}
+        authors={authors}
+        uniqueSources={uniqueSources}
+        onSuccess={() => {
+          setIsModalOpen(false);
+          setEditingId(null);
+          setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '', essayAnswer: '', hint: '' });
+        }}
+      />
 
       {/* Translation Confirmation Modal */}
       <AnimatePresence>
@@ -1556,124 +1756,20 @@ const ManageQuestions: React.FC = () => {
       </div>
 
         <div className="space-y-3 sm:space-y-4">
-          {filteredQuestions.map((q) => {
-            const isRecent = recentIds.includes(q.id);
-            const canEdit = profile?.role === 'admin' || (profile?.role === 'editor' && q.authorId === user?.uid);
-            
-            return (
-              <div 
-                key={q.id} 
-                className={`bg-white p-4 sm:p-6 rounded-2xl border transition-all relative overflow-hidden ${
-                  isRecent 
-                    ? 'border-blue-400 shadow-md ring-1 ring-blue-100' 
-                    : 'border-neutral-200 shadow-sm hover:shadow-md'
-                }`}
-              >
-                {isRecent && (
-                  <div className="absolute top-0 right-0">
-                    <div className="bg-blue-600 text-white text-[8px] sm:text-[10px] font-black px-3 py-1 rounded-bl-xl uppercase tracking-widest shadow-sm flex items-center gap-1">
-                      <Sparkles className="w-2.5 h-2.5" />
-                      Mới cập nhật
-                    </div>
-                  </div>
-                )}
-                <div className="flex justify-between items-start gap-3 mb-3 sm:mb-4">
-                <div className="space-y-0.5 sm:space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[10px] sm:text-xs font-bold text-blue-600 uppercase tracking-wider">
-                      {categories.find(c => c.id === q.categoryId)?.name || 'N/A'}
-                    </span>
-                    <span className="text-[10px] sm:text-xs font-bold text-neutral-400 uppercase tracking-wider">
-                      • {exerciseTypes.find(t => t.id === q.exerciseType)?.name || 'Chọn đáp án'}
-                    </span>
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border uppercase tracking-tighter ${
-                      q.difficulty === 1 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
-                      q.difficulty === 2 ? 'bg-amber-50 text-amber-600 border-amber-200' :
-                      'bg-rose-50 text-rose-600 border-rose-200'
-                    }`}>
-                      {q.difficulty === 1 ? 'Dễ' : q.difficulty === 2 ? 'Vừa' : 'Khó'}
-                    </span>
-                    {(q.passage || q.passageId) && (
-                      <span className="flex items-center gap-1 bg-amber-50 text-amber-600 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-200 uppercase tracking-tighter">
-                        <BookOpen className="w-2.5 h-2.5" />
-                        {q.passageId ? `Đọc hiểu: ${q.passageId}` : 'Có bài đọc'}
-                      </span>
-                    )}
-                    {q.authorId && (
-                      <span className="flex items-center gap-1 bg-neutral-50 text-neutral-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-neutral-200 uppercase tracking-tighter">
-                        <User className="w-2.5 h-2.5" />
-                        {q.authorId === user?.uid ? 'Của tôi' : (authors.find(a => a.uid === q.authorId)?.email.split('@')[0] || 'Người khác')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-base sm:text-lg font-medium text-neutral-900 leading-tight prose prose-neutral max-w-none font-serif">
-                    <ReactMarkdown
-                      rehypePlugins={[rehypeRaw]}
-                      remarkPlugins={[remarkGfm, remarkBreaks]}
-                      components={{
-                        strong: ({ ...props }) => <strong className="font-black text-neutral-950" {...props} />,
-                        u: ({ ...props }) => <u className="decoration-blue-400 decoration-2 underline-offset-4" {...props} />
-                      }}
-                    >
-                      {q.source && q.source.toLowerCase() !== 'chung' ? `**[${q.source}]** ${q.text}` : q.text}
-                    </ReactMarkdown>
-                  </div>
-                  {q.imageUrl && (
-                    <div className="mt-2 rounded-lg overflow-hidden border border-neutral-100 bg-neutral-50 w-fit max-w-[200px] group cursor-zoom-in">
-                      <img 
-                        src={q.imageUrl} 
-                        alt="Preview" 
-                        className="w-full h-auto object-contain max-h-[120px] transition-transform group-hover:scale-105"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.src = 'https://placehold.co/400x300?text=Lỗi+tải+ảnh';
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-1 sm:gap-2 shrink-0">
-                  {canEdit && (
-                    <>
-                      <button onClick={() => startEdit(q)} className="p-1.5 sm:px-3 sm:py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
-                        <Edit2 className="w-4 h-4" />
-                        <span className="hidden sm:inline">Sửa</span>
-                      </button>
-                      <button onClick={() => setDeleteConfirmId(q.id)} className="p-1.5 sm:px-3 sm:py-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
-                        <Trash2 className="w-4 h-4" />
-                        <span className="hidden sm:inline">Xóa</span>
-                      </button>
-                    </>
-                  )}
-                  {!canEdit && (
-                    <div className="p-1.5 sm:px-3 sm:py-1.5 text-neutral-300 cursor-not-allowed flex items-center gap-1" title="Bạn không có quyền sửa câu hỏi này">
-                      <Shield className="w-4 h-4" />
-                      <span className="hidden sm:inline text-xs">Read-only</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {q.exerciseType === 'essay' ? (
-                <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-xl">
-                  <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">Đáp án tự luận:</span>
-                  <p className="text-sm text-blue-800 font-medium">{q.essayAnswer}</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
-                  {q.options.map((opt, idx) => (
-                    <div
-                      key={idx}
-                      className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm border ${idx === q.correctOption ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-medium' : 'bg-neutral-50 border-neutral-100 text-neutral-600'}`}
-                    >
-                      <span className="font-bold mr-1">{String.fromCharCode(65 + idx)}.</span> {opt}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+          {filteredQuestions.map((q) => (
+            <QuestionCard
+              key={q.id}
+              q={q}
+              isRecent={recentIds.includes(q.id)}
+              canEdit={profile?.role === 'admin' || (profile?.role === 'editor' && q.authorId === user?.uid)}
+              userUid={user?.uid}
+              categories={categories}
+              exerciseTypes={exerciseTypes}
+              authors={authors}
+              onEdit={startEdit}
+              onDelete={setDeleteConfirmId}
+            />
+          ))}
           {filteredQuestions.length === 0 && (
             <div className="text-center py-12 text-neutral-500 italic">
               Không tìm thấy câu hỏi nào.
