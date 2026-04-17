@@ -59,14 +59,14 @@ const GrammarPage: React.FC = () => {
         </div>
 
         {!selectedTopic && (
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+          <div className="relative w-full sm:w-80">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
             <input
               type="text"
-              placeholder="Tìm kiếm chủ đề..."
+              placeholder="Tìm kiếm chủ đề ngữ pháp..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-white border border-neutral-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm transition-all"
+              className="w-full pl-12 pr-4 py-2.5 bg-white border-2 border-neutral-100 rounded-xl focus:ring-4 focus:ring-blue-50 focus:border-blue-400 outline-none text-sm transition-all shadow-lg shadow-neutral-100/50"
             />
           </div>
         )}

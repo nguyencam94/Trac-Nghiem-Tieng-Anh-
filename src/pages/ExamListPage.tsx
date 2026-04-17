@@ -109,16 +109,23 @@ const ExamListPage: React.FC = () => {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="relative max-w-xl mx-auto"
+          className="sticky top-16 sm:relative sm:top-0 z-20 -mx-4 px-4 py-4 sm:p-0 bg-neutral-50/80 backdrop-blur-md sm:bg-transparent"
         >
-          <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
-          <input 
-            type="text"
-            placeholder="Tìm đề thi (ví dụ: Đề 1, Chuyên Thái Bình...)"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-14 pr-6 py-4 bg-white border-2 border-neutral-100 rounded-[1.5rem] shadow-lg shadow-neutral-100/50 outline-none focus:border-rose-300 focus:ring-4 focus:ring-rose-50 transition-all font-medium text-neutral-800 placeholder:text-neutral-400"
-          />
+          <div className="max-w-xl mx-auto space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-4 sm:hidden">
+              Tìm kiếm đề thi
+            </label>
+            <div className="relative">
+              <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
+              <input 
+                type="text"
+                placeholder="Tìm đề thi (ví dụ: Đề 1, Chuyên Thái Bình...)"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-14 pr-6 py-3 bg-white border-2 border-neutral-200 sm:border-neutral-100 rounded-[1.5rem] shadow-xl shadow-neutral-200/50 sm:shadow-lg sm:shadow-neutral-100/50 outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-50 transition-all font-bold text-neutral-800 placeholder:text-neutral-400"
+              />
+            </div>
+          </div>
         </motion.div>
       )}
 

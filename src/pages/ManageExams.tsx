@@ -5,9 +5,12 @@ import { Question, ExamConfig, OperationType } from '../types';
 import { handleFirestoreError } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { FileText, Eye, EyeOff, Search, Loader2, AlertCircle, ChevronLeft } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 const ManageExams: React.FC = () => {
+  const { profile } = useAuth();
+  const navigate = useNavigate();
   const [sources, setSources] = useState<string[]>([]);
   const [configs, setConfigs] = useState<Record<string, ExamConfig>>({});
   const [loading, setLoading] = useState(true);
@@ -15,6 +18,11 @@ const ManageExams: React.FC = () => {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (profile && profile.role !== 'admin') {
+      navigate('/admin');
+      return;
+    }
+
     // Fetch all questions to get unique sources
     const qQuestions = query(collection(db, 'questions'));
     const unsubscribeQuestions = onSnapshot(qQuestions, (snapshot) => {
@@ -92,14 +100,14 @@ const ManageExams: React.FC = () => {
           </div>
         </div>
 
-        <div className="relative max-w-xs w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+        <div className="relative w-full sm:max-w-xs">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
           <input 
             type="text"
-            placeholder="Tìm đề thi..."
+            placeholder="Tìm đề quản lý..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-white border border-neutral-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 outline-none transition-all text-sm"
+            className="w-full pl-11 pr-4 py-2.5 bg-white border border-neutral-200 rounded-2xl focus:ring-4 focus:ring-indigo-50 focus:border-indigo-400 outline-none transition-all text-sm shadow-sm"
           />
         </div>
       </div>

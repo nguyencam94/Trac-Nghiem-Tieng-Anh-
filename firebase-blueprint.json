@@ -145,6 +145,36 @@
         }
       },
       "required": ["isHidden", "updatedAt"]
+    },
+    "ExamResult": {
+      "title": "ExamResult",
+      "description": "The result of an exam taken by a student.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "studentName": { "type": "string" },
+        "studentClass": { "type": "string" },
+        "schoolName": { "type": "string" },
+        "examSource": { "type": "string" },
+        "score": { "type": "number" },
+        "correctCount": { "type": "integer" },
+        "totalQuestions": { "type": "integer" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userEmail", "examSource", "score", "correctCount", "totalQuestions", "completedAt"]
+    },
+    "SchoolAccount": {
+      "title": "SchoolAccount",
+      "description": "Account details for a school login.",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "schoolName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["username", "password", "schoolName", "createdAt"]
     }
   },
   "firestore": {
@@ -167,6 +197,14 @@
     "/exam_configs/{sourceId}": {
       "schema": "ExamConfig",
       "description": "Metadata and visibility settings for exam sources."
+    },
+    "/exam_results/{resultId}": {
+      "schema": "ExamResult",
+      "description": "History of exam attempts."
+    },
+    "/school_accounts/{accountId}": {
+      "schema": "SchoolAccount",
+      "description": "Shared accounts for schools."
     }
   }
 }

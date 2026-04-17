@@ -36,6 +36,7 @@ export interface ExamResult {
   userEmail: string;
   studentName?: string; // For school account students
   studentClass?: string; // For school account students
+  schoolName?: string; // For school account students
   examSource: string;
   score: number;
   correctCount: number;

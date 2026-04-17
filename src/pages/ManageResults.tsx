@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, getDocs, orderBy, deleteDoc, doc, limit } from 'firebase/firestore';
+import { collection, query, getDocs, orderBy, deleteDoc, doc, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ExamResult, OperationType } from '../types';
 import { handleFirestoreError } from '../lib/utils';
@@ -25,30 +25,41 @@ import {
 const ManageResults: React.FC = () => {
   const { profile } = useAuth();
   const [results, setResults] = useState<ExamResult[]>([]);
+  const [allSchools, setAllSchools] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterClass, setFilterClass] = useState("");
+  const [filterSchool, setFilterSchool] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    const fetchAllResults = async () => {
-      try {
-        const q = query(
-          collection(db, 'exam_results'),
-          orderBy('completedAt', 'desc')
-        );
-        const snapshot = await getDocs(q);
-        const fetchedResults = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExamResult));
-        setResults(fetchedResults);
-      } catch (error) {
-        handleFirestoreError(error, OperationType.LIST, 'exam_results_admin');
-      } finally {
-        setLoading(false);
-      }
-    };
+    // Real-time results
+    const qResults = query(
+      collection(db, 'exam_results'),
+      orderBy('completedAt', 'desc')
+    );
+    const unsubscribeResults = onSnapshot(qResults, (snapshot) => {
+      setResults(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExamResult)));
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'exam_results_admin');
+      setLoading(false);
+    });
 
-    fetchAllResults();
+    // Real-time school accounts
+    const qSchools = query(collection(db, 'school_accounts'));
+    const unsubscribeSchools = onSnapshot(qSchools, (snapshot) => {
+      const schoolNames = snapshot.docs.map(doc => (doc.data() as any).schoolName);
+      setAllSchools(schoolNames);
+    }, (error) => {
+      console.error("Error fetching schools:", error);
+    });
+
+    return () => {
+      unsubscribeResults();
+      unsubscribeSchools();
+    };
   }, []);
 
   const handleDelete = async () => {
@@ -69,14 +80,21 @@ const ManageResults: React.FC = () => {
     const matchesSearch = 
       (r.studentName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
       (r.userEmail?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-      (r.examSource?.toLowerCase() || "").includes(searchTerm.toLowerCase());
+      (r.examSource?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+      (r.schoolName?.toLowerCase() || "").includes(searchTerm.toLowerCase());
     
     const matchesClass = filterClass === "" || r.studentClass === filterClass;
+    const matchesSchool = filterSchool === "" || 
+      (r.schoolName?.trim().toLowerCase() === filterSchool.trim().toLowerCase());
     
-    return matchesSearch && matchesClass;
+    return matchesSearch && matchesClass && matchesSchool;
   });
 
   const classes = Array.from(new Set(results.map(r => r.studentClass).filter(Boolean))).sort();
+  const schools = Array.from(new Set([
+    ...allSchools,
+    ...results.map(r => r.schoolName).filter(Boolean)
+  ])).sort();
 
   if (loading) {
     return (
@@ -140,29 +158,55 @@ const ManageResults: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="bg-white p-4 rounded-2xl border border-neutral-200 shadow-sm flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
-          <input 
-            type="text"
-            placeholder="Tìm theo tên học sinh, đề thi..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-100 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-          />
+      <div className="bg-white p-6 rounded-[2rem] border border-neutral-200 shadow-sm flex flex-col items-stretch gap-6">
+        <div className="space-y-2">
+          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Tìm kiếm nhanh</label>
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
+            <input 
+              type="text"
+              placeholder="Tìm theo tên học sinh, đề thi..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-100 rounded-2xl focus:ring-4 focus:ring-blue-50 focus:border-blue-400 outline-none transition-all font-bold text-neutral-700 text-sm"
+            />
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Filter className="w-5 h-5 text-neutral-400" />
-          <select 
-            value={filterClass}
-            onChange={(e) => setFilterClass(e.target.value)}
-            className="bg-neutral-50 border border-neutral-100 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-100 font-bold text-neutral-700"
-          >
-            <option value="">Tất cả lớp</option>
-            {classes.map(c => (
-              <option key={c} value={c}>Lớp {c}</option>
-            ))}
-          </select>
+        
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-6 pt-4 border-t border-neutral-50">
+          <div className="flex-1 space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Lọc theo trường</label>
+            <div className="flex items-center gap-3 bg-neutral-50 border border-neutral-100 rounded-2xl px-4 py-1">
+              <School className="w-5 h-5 text-neutral-400" />
+              <select 
+                value={filterSchool}
+                onChange={(e) => setFilterSchool(e.target.value)}
+                className="flex-1 py-3 outline-none bg-transparent font-bold text-neutral-700"
+              >
+                <option value="">Tất cả trường</option>
+                {schools.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex-1 space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Lọc theo lớp</label>
+            <div className="flex items-center gap-3 bg-neutral-50 border border-neutral-100 rounded-2xl px-4 py-1">
+              <Filter className="w-5 h-5 text-neutral-400" />
+              <select 
+                value={filterClass}
+                onChange={(e) => setFilterClass(e.target.value)}
+                className="flex-1 py-3 outline-none bg-transparent font-bold text-neutral-700"
+              >
+                <option value="">Tất cả lớp</option>
+                {classes.map(c => (
+                  <option key={c} value={c}>Lớp {c}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -187,7 +231,15 @@ const ManageResults: React.FC = () => {
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="text-sm font-bold text-neutral-900">{result.studentName || 'N/A'}</span>
-                        <span className="text-[10px] text-blue-600 font-black uppercase tracking-wider">Lớp {result.studentClass || 'N/A'}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-blue-600 font-black uppercase tracking-wider">Lớp {result.studentClass || 'N/A'}</span>
+                          {result.schoolName && (
+                            <>
+                              <span className="text-[10px] text-neutral-300">•</span>
+                              <span className="text-[10px] text-amber-600 font-black uppercase tracking-wider">{result.schoolName}</span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">

@@ -145,7 +145,8 @@ service cloud.firestore {
              data.totalQuestions is number &&
              data.completedAt is string &&
              (!('studentName' in data) || (data.studentName == null || (data.studentName is string && data.studentName.size() < 200))) &&
-             (!('studentClass' in data) || (data.studentClass == null || (data.studentClass is string && data.studentClass.size() < 50)));
+             (!('studentClass' in data) || (data.studentClass == null || (data.studentClass is string && data.studentClass.size() < 50))) &&
+             (!('schoolName' in data) || (data.schoolName == null || (data.schoolName is string && data.schoolName.size() < 200)));
     }
 
     function isValidSchoolAccount(data) {

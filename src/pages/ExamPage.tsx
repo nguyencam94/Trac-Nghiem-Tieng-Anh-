@@ -39,6 +39,17 @@ const ExamPage: React.FC = () => {
   const [isRetryMode, setIsRetryMode] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Use refs to avoid stale closures in timer callback
+  const schoolAccountRef = useRef(schoolAccount);
+  const studentInfoRef = useRef(studentInfo);
+  const profileRef = useRef(profile);
+
+  useEffect(() => {
+    schoolAccountRef.current = schoolAccount;
+    studentInfoRef.current = studentInfo;
+    profileRef.current = profile;
+  }, [schoolAccount, studentInfo, profile]);
+
   const exerciseTypeLabels: Record<string, string> = {
     'multiple_choice': 'Chọn đáp án đúng (A, B, C, D)',
     'picture_guess': 'Nhìn tranh đoán đáp án',
@@ -413,14 +424,19 @@ const ExamPage: React.FC = () => {
     setShowResultModal(true);
 
     // Save result to Firestore if user is logged in and NOT in retry mode
-    if ((auth.currentUser || schoolAccount) && source && !isRetryMode) {
+    // Use refs to get latest auth state
+    const currentSchoolAccount = schoolAccountRef.current;
+    const currentStudentInfo = studentInfoRef.current;
+    
+    if ((auth.currentUser || currentSchoolAccount) && source && !isRetryMode) {
       const saveResult = async () => {
         try {
           await addDoc(collection(db, 'exam_results'), {
-            userId: auth.currentUser?.uid || schoolAccount?.id,
-            userEmail: auth.currentUser?.email || schoolAccount?.username,
-            studentName: studentInfo?.name || null,
-            studentClass: studentInfo?.class || null,
+            userId: auth.currentUser?.uid || currentSchoolAccount?.id,
+            userEmail: auth.currentUser?.email || currentSchoolAccount?.username,
+            studentName: currentStudentInfo?.name || null,
+            studentClass: currentStudentInfo?.class || null,
+            schoolName: currentSchoolAccount?.schoolName || null,
             examSource: source,
             score: finalScore,
             correctCount: correctCount,
