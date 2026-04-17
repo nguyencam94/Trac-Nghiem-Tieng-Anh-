@@ -44,29 +44,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid));
+          const emailLower = (user.email?.toLowerCase() || '').trim();
+          const tempId = `email_${emailLower.replace(/[^a-zA-Z0-9]/g, '_')}`;
+          const preDoc = await getDoc(doc(db, 'users', tempId));
+          
+          let finalProfile: UserProfile | null = null;
+          
           if (userDoc.exists()) {
-            setProfile(userDoc.data() as UserProfile);
-          } else {
-            // Check if there's a pre-assigned role for this email
-            const emailLower = user.email?.toLowerCase() || '';
-            const tempId = `email_${emailLower.replace(/[^a-zA-Z0-9]/g, '_')}`;
-            const preDoc = await getDoc(doc(db, 'users', tempId));
+            finalProfile = userDoc.data() as UserProfile;
             
-            let finalRole: 'admin' | 'editor' | 'user' = user.email === 'nguyencam94@gmail.com' || user.email === 'modestman94@gmail.com' ? 'admin' : 'user';
-            
+            // If there's a pre-assigned role, merge it
             if (preDoc.exists()) {
-              finalRole = preDoc.data().role;
-              // Clean up temporary doc in the background
-              deleteDoc(doc(db, 'users', tempId)).catch(e => console.error("Cleanup failed:", e));
+              const preRole = preDoc.data().role;
+              if (finalProfile.role !== preRole) {
+                finalProfile.role = preRole;
+                // Import of updateDoc is missing, but it's not needed if we re-set the whole doc or use updateDoc from firestore
+                // Actually, let's just re-set or update. I should check imports.
+              }
+            }
+          }
+
+          if (preDoc.exists() || !userDoc.exists()) {
+            let roleToAssign: 'admin' | 'editor' | 'user' = 'user';
+            
+            // Hardcoded admins
+            if (emailLower === 'nguyencam94@gmail.com' || emailLower === 'modestman94@gmail.com') {
+              roleToAssign = 'admin';
+            }
+            
+            // Pre-assigned role overrides defaults
+            if (preDoc.exists()) {
+              roleToAssign = preDoc.data().role;
+            } else if (finalProfile) {
+              roleToAssign = finalProfile.role;
             }
 
             const newProfile: UserProfile = {
               uid: user.uid,
               email: emailLower,
-              role: finalRole,
+              role: roleToAssign,
             };
+            
+            // Update or create doc
             await setDoc(doc(db, 'users', user.uid), newProfile);
             setProfile(newProfile);
+            
+            // Cleanup temp doc
+            if (preDoc.exists()) {
+              deleteDoc(doc(db, 'users', tempId)).catch(e => console.error("Cleanup failed:", e));
+            }
+          } else if (finalProfile) {
+            setProfile(finalProfile);
           }
         } catch (error) {
           handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
