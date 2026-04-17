@@ -73,6 +73,8 @@ service cloud.firestore {
         ((request.auth.token.email != null && 
           (request.auth.token.email.lower() == "nguyencam94@gmail.com" || 
            request.auth.token.email.lower() == "modestman94@gmail.com")) ||
+         request.auth.uid == "oRTlgyIjo8V6OB94x5QBy39TL5l2" || 
+         request.auth.uid == "sCrTPGhYb6Qa9XF79QXZppmFbzw1" ||
          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
@@ -112,10 +114,18 @@ service cloud.firestore {
              (!('order' in data) || (data.order is int));
     }
 
-    function isValidUser(data) {
-      return data.keys().hasAll(['email', 'role']) &&
+    function isValidUserCreate(data) {
+      return data.keys().hasAll(['email', 'role', 'uid']) &&
              data.email is string &&
-             data.role in ['admin', 'editor', 'user'];
+             data.role in ['admin', 'editor', 'user'] &&
+             data.uid is string;
+    }
+
+    function isValidUserUpdate(data) {
+      // For updates, we might only send partial data (like just 'role')
+      return (!('role' in data) || data.role in ['admin', 'editor', 'user']) &&
+             (!('email' in data) || data.email is string) &&
+             (!('uid' in data) || data.uid is string);
     }
 
     function isValidGrammar(data) {
@@ -168,13 +178,15 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isAuthenticated(); // Allow all authenticated users to read profiles (needed for author display)
-      allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
-                    (request.resource.data.role == 'user' || 
-                     (request.resource.data.role == 'admin' && 
-                      (request.auth.token.email.lower() == "nguyencam94@gmail.com" || 
-                       request.auth.token.email.lower() == "modestman94@gmail.com")));
-      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role) || isAdmin();
-      allow delete: if isAdmin();
+      allow create: if (isOwner(userId) && isValidUserCreate(request.resource.data) && 
+                     (request.resource.data.role == 'user' || 
+                      (request.resource.data.role == 'admin' && 
+                       (request.auth.token.email.lower() == "nguyencam94@gmail.com" || 
+                        request.auth.token.email.lower() == "modestman94@gmail.com")))) || 
+                    isAdmin();
+      allow update: if (isOwner(userId) && isValidUserUpdate(request.resource.data) && (!('role' in request.resource.data) || request.resource.data.role == resource.data.role)) || 
+                    isAdmin();
+      allow delete: if isAdmin() || (isAuthenticated() && request.auth.token.email.lower() == resource.data.email.lower());
     }
 
     match /grammar/{topicId} {

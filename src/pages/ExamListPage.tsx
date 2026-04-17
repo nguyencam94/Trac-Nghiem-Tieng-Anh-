@@ -3,14 +3,15 @@ import { Link } from 'react-router-dom';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Question, OperationType } from '../types';
-import { ChevronRight, FileText, Clock, BookOpen, AlertCircle } from 'lucide-react';
-import { motion } from 'motion/react';
+import { ChevronRight, FileText, Clock, BookOpen, AlertCircle, Search } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { handleFirestoreError } from '../lib/utils';
 
 const ExamListPage: React.FC = () => {
   const [sources, setSources] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [questionCounts, setQuestionCounts] = useState<Record<string, number>>({});
+  const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
     const q = query(collection(db, 'questions'));
@@ -77,6 +78,24 @@ const ExamListPage: React.FC = () => {
         </motion.p>
       </section>
 
+      {sources.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="relative max-w-xl mx-auto"
+        >
+          <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
+          <input 
+            type="text"
+            placeholder="Tìm đề thi (ví dụ: Đề 1, Chuyên Thái Bình...)"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-14 pr-6 py-4 bg-white border-2 border-neutral-100 rounded-[1.5rem] shadow-lg shadow-neutral-100/50 outline-none focus:border-rose-300 focus:ring-4 focus:ring-rose-50 transition-all font-medium text-neutral-800 placeholder:text-neutral-400"
+          />
+        </motion.div>
+      )}
+
       {sources.length === 0 ? (
         <div className="bg-white p-12 rounded-[2.5rem] border-2 border-dashed border-neutral-200 text-center space-y-4">
           <div className="w-20 h-20 bg-neutral-50 text-neutral-300 rounded-full flex items-center justify-center mx-auto">
@@ -86,45 +105,60 @@ const ExamListPage: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {sources.map((source, index) => (
-            <motion.div
-              key={source}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
-            >
-              <Link
-                to={`/exam/${encodeURIComponent(source)}`}
-                className="group block bg-white p-6 sm:p-8 rounded-[2rem] border-2 border-neutral-100 shadow-xl shadow-neutral-100/50 hover:shadow-2xl hover:shadow-rose-200/40 hover:border-rose-400 transition-all duration-300"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-4">
-                    <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                      <FileText className="w-7 h-7" />
-                    </div>
-                    <div className="space-y-1">
-                      <h3 className="text-xl font-black text-neutral-900 group-hover:text-rose-700 transition-colors line-clamp-2">
-                        {source}
-                      </h3>
-                      <div className="flex items-center gap-4 text-neutral-400 text-sm font-bold uppercase tracking-wider">
-                        <span className="flex items-center gap-1.5">
-                          <BookOpen className="w-4 h-4" />
-                          {questionCounts[source]} câu hỏi
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <Clock className="w-4 h-4" />
-                          60 phút
-                        </span>
+          <AnimatePresence mode="popLayout">
+            {sources
+              .filter(source => source.toLowerCase().includes(searchTerm.toLowerCase()))
+              .map((source, index) => (
+                <motion.div
+                  key={source}
+                  layout
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Link
+                    to={`/exam/${encodeURIComponent(source)}`}
+                    className="group block bg-white p-6 sm:p-8 rounded-[2rem] border-2 border-neutral-100 shadow-xl shadow-neutral-100/50 hover:shadow-2xl hover:shadow-rose-200/40 hover:border-rose-400 transition-all duration-300 h-full"
+                  >
+                    <div className="flex items-start justify-between gap-4 h-full">
+                      <div className="space-y-4 flex-1">
+                        <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
+                          <FileText className="w-7 h-7" />
+                        </div>
+                        <div className="space-y-1">
+                          <h3 className="text-xl font-black text-neutral-900 group-hover:text-rose-700 transition-colors line-clamp-2">
+                            {source}
+                          </h3>
+                          <div className="flex items-center gap-4 text-neutral-400 text-sm font-bold uppercase tracking-wider">
+                            <span className="flex items-center gap-1.5">
+                              <BookOpen className="w-4 h-4" />
+                              {questionCounts[source]} câu hỏi
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <Clock className="w-4 h-4" />
+                              60 phút
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="w-10 h-10 rounded-full bg-neutral-50 text-neutral-400 flex items-center justify-center group-hover:bg-rose-600 group-hover:text-white transition-all shrink-0">
+                        <ChevronRight className="w-6 h-6" />
                       </div>
                     </div>
-                  </div>
-                  <div className="w-10 h-10 rounded-full bg-neutral-50 text-neutral-400 flex items-center justify-center group-hover:bg-rose-600 group-hover:text-white transition-all">
-                    <ChevronRight className="w-6 h-6" />
-                  </div>
-                </div>
-              </Link>
-            </motion.div>
-          ))}
+                  </Link>
+                </motion.div>
+              ))}
+          </AnimatePresence>
+          
+          {sources.filter(source => source.toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
+            <div className="col-span-1 md:col-span-2 py-12 text-center space-y-4">
+              <div className="w-16 h-16 bg-neutral-50 text-neutral-300 rounded-full flex items-center justify-center mx-auto">
+                <Search className="w-8 h-8" />
+              </div>
+              <p className="text-neutral-500 font-medium text-lg">Không tìm thấy đề thi nào khớp với "{searchTerm}"</p>
+            </div>
+          )}
         </div>
       )}
 

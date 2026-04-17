@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { collection, query, where, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { UserProfile, OperationType, SchoolAccount } from '../types';
 import { handleFirestoreError } from '../lib/utils';
@@ -47,11 +47,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (userDoc.exists()) {
             setProfile(userDoc.data() as UserProfile);
           } else {
-            // Default role for new users
+            // Check if there's a pre-assigned role for this email
+            const emailLower = user.email?.toLowerCase() || '';
+            const tempId = `email_${emailLower.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const preDoc = await getDoc(doc(db, 'users', tempId));
+            
+            let finalRole: 'admin' | 'editor' | 'user' = user.email === 'nguyencam94@gmail.com' || user.email === 'modestman94@gmail.com' ? 'admin' : 'user';
+            
+            if (preDoc.exists()) {
+              finalRole = preDoc.data().role;
+              // Clean up temporary doc in the background
+              deleteDoc(doc(db, 'users', tempId)).catch(e => console.error("Cleanup failed:", e));
+            }
+
             const newProfile: UserProfile = {
               uid: user.uid,
-              email: user.email || '',
-              role: user.email === 'nguyencam94@gmail.com' ? 'admin' : 'user',
+              email: emailLower,
+              role: finalRole,
             };
             await setDoc(doc(db, 'users', user.uid), newProfile);
             setProfile(newProfile);
