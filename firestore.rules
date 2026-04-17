@@ -178,7 +178,7 @@ service cloud.firestore {
     }
 
     match /exam_configs/{sourceId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isAdmin();
     }
 

@@ -9,7 +9,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 const ManageExams: React.FC = () => {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [sources, setSources] = useState<string[]>([]);
   const [configs, setConfigs] = useState<Record<string, ExamConfig>>({});
@@ -18,7 +18,8 @@ const ManageExams: React.FC = () => {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (profile && profile.role !== 'admin') {
+    if (authLoading) return;
+    if (profile?.role !== 'admin' && profile?.role !== 'editor') {
       navigate('/admin');
       return;
     }
@@ -55,7 +56,7 @@ const ManageExams: React.FC = () => {
       unsubscribeQuestions();
       unsubscribeConfigs();
     };
-  }, []);
+  }, [profile, authLoading, navigate]);
 
   const toggleVisibility = async (source: string) => {
     setUpdatingId(source);

@@ -18,7 +18,7 @@ import { parseQuestionsFromText, parseQuestionsFromFile, ParsedQuestion, transla
 
 const ManageQuestions: React.FC = () => {
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -84,6 +84,12 @@ const ManageQuestions: React.FC = () => {
   ];
 
   useEffect(() => {
+    if (authLoading) return;
+    if (profile?.role !== 'admin' && profile?.role !== 'editor') {
+      navigate('/admin');
+      return;
+    }
+
     const qCats = query(collection(db, 'categories'), orderBy('createdAt', 'desc'));
     const unsubCats = onSnapshot(qCats, (snapshot) => {
       setCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category)));
@@ -110,7 +116,7 @@ const ManageQuestions: React.FC = () => {
       unsubQuests();
       unsubUsers();
     };
-  }, []);
+  }, [profile, authLoading, navigate]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

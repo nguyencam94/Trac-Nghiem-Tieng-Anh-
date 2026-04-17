@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Settings, PlusCircle, LayoutDashboard, BarChart3, HelpCircle, BookOpen, Users, School, EyeOff } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -7,11 +7,18 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 
 const AdminDashboard: React.FC = () => {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState({ categories: 0, questions: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!profile || (profile.role !== 'admin' && profile.role !== 'editor')) {
+      navigate('/');
+      return;
+    }
+
     const fetchStats = async () => {
       try {
         const [catsSnap, questsSnap] = await Promise.all([
@@ -29,7 +36,7 @@ const AdminDashboard: React.FC = () => {
       }
     };
     fetchStats();
-  }, []);
+  }, [profile, authLoading, navigate]);
 
   return (
     <div className="space-y-10">

@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { ExamResult, OperationType } from '../types';
 import { handleFirestoreError } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart3, 
@@ -23,7 +24,8 @@ import {
 } from 'lucide-react';
 
 const ManageResults: React.FC = () => {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
   const [results, setResults] = useState<ExamResult[]>([]);
   const [allSchools, setAllSchools] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,6 +36,12 @@ const ManageResults: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (profile?.role !== 'admin' && profile?.role !== 'editor') {
+      navigate('/');
+      return;
+    }
+
     // Real-time results
     const qResults = query(
       collection(db, 'exam_results'),
@@ -60,7 +68,7 @@ const ManageResults: React.FC = () => {
       unsubscribeResults();
       unsubscribeSchools();
     };
-  }, []);
+  }, [profile, authLoading, navigate]);
 
   const handleDelete = async () => {
     if (!deleteId) return;
