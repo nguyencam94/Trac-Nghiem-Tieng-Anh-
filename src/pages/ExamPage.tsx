@@ -6,7 +6,7 @@ import { db, storage, auth } from '../firebase';
 import { Question, OperationType, ExamConfig } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, XCircle, Clock, AlertCircle, ChevronLeft, Send, RotateCcw, Info, BookOpen, ChevronRight, Eye, EyeOff, Edit3, Save, X, Underline, CornerDownLeft, Bold, Upload, User } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, AlertCircle, ChevronLeft, Send, RotateCcw, Info, BookOpen, ChevronRight, Eye, EyeOff, Edit3, Save, X, Underline, CornerDownLeft, Bold, Upload, User, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
@@ -37,6 +37,8 @@ const ExamPage: React.FC = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [timeLeft, setTimeLeft] = useState(60 * 60); // 60 minutes in seconds
   const [isRetryMode, setIsRetryMode] = useState(false);
+  const [showHintsMode, setShowHintsMode] = useState(false);
+  const [visibleHintIndices, setVisibleHintIndices] = useState<Set<number>>(new Set());
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Use refs to avoid stale closures in timer callback
@@ -212,6 +214,18 @@ const ExamPage: React.FC = () => {
   const handleEssayChange = (questionIdx: number, value: string) => {
     if (isSubmitted) return;
     setUserAnswers(prev => ({ ...prev, [questionIdx]: value }));
+  };
+
+  const toggleHint = (idx: number) => {
+    setVisibleHintIndices(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        next.delete(idx);
+      } else {
+        next.add(idx);
+      }
+      return next;
+    });
   };
 
   const startEditing = (q: Question) => {
@@ -514,6 +528,26 @@ const ExamPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 pointer-events-auto">
+            <AnimatePresence>
+              {!isSubmitted && (
+                <motion.button
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10 }}
+                  onClick={() => setShowHintsMode(!showHintsMode)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-2 transition-all shadow-sm font-bold text-[10px] uppercase tracking-wider ${
+                    showHintsMode 
+                      ? 'bg-amber-100 border-amber-200 text-amber-700' 
+                      : 'bg-white/90 border-neutral-200 text-neutral-500 hover:bg-amber-50 hover:text-amber-600'
+                  }`}
+                  title="Chế độ làm bài kèm gợi ý"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Gợi ý: {showHintsMode ? 'Bật' : 'Tắt'}</span>
+                </motion.button>
+              )}
+            </AnimatePresence>
+
             <AnimatePresence>
               {showControls && (
                 <motion.div 
@@ -867,17 +901,49 @@ const ExamPage: React.FC = () => {
                     )}
                     <div className="text-base sm:text-lg font-medium text-neutral-900 leading-relaxed prose prose-neutral max-w-none prose-table:border prose-table:border-neutral-200 prose-th:bg-neutral-100 prose-th:p-2 prose-td:p-2 prose-td:border prose-td:border-neutral-100 font-serif">
                       <ReactMarkdown
-                        rehypePlugins={[rehypeRaw]}
-                        remarkPlugins={[remarkGfm, remarkBreaks]}
-                        components={{
-                          strong: ({ ...props }) => <strong className="font-black text-black bg-neutral-100/50 px-1 rounded" {...props} />,
-                          u: ({ ...props }) => <u className="decoration-rose-400 decoration-2 underline-offset-4" {...props} />
-                        }}
-                      >{q.text}</ReactMarkdown>
-                    </div>
-                  </>
-                )}
-              </div>
+                         rehypePlugins={[rehypeRaw]}
+                         remarkPlugins={[remarkGfm, remarkBreaks]}
+                         components={{
+                           strong: ({ ...props }) => <strong className="font-black text-black bg-neutral-100/50 px-1 rounded" {...props} />,
+                           u: ({ ...props }) => <u className="decoration-rose-400 decoration-2 underline-offset-4" {...props} />
+                         }}
+                       >{q.text}</ReactMarkdown>
+                     </div>
+                   </>
+                 )}
+
+                 {q.pedagogicalHint && (
+                   <div className="mt-4 pt-4 border-t border-neutral-100 space-y-3">
+                     <button
+                       onClick={() => toggleHint(qIdx)}
+                       className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-[10px] uppercase tracking-wider transition-all ${
+                         (showHintsMode || visibleHintIndices.has(qIdx))
+                           ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                           : 'bg-neutral-100 text-neutral-500 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-100 border border-transparent'
+                       }`}
+                     >
+                       <Info className="w-3.5 h-3.5" />
+                       { (showHintsMode || visibleHintIndices.has(qIdx)) ? 'Ẩn gợi ý' : 'Xem gợi ý' }
+                     </button>
+                     
+                     <AnimatePresence>
+                       {(showHintsMode || visibleHintIndices.has(qIdx)) && (
+                         <motion.div
+                           initial={{ opacity: 0, height: 0 }}
+                           animate={{ opacity: 1, height: 'auto' }}
+                           exit={{ opacity: 0, height: 0 }}
+                           className="overflow-hidden"
+                         >
+                           <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl text-xs sm:text-sm text-amber-800 font-medium leading-relaxed italic">
+                             <span className="font-black uppercase tracking-widest text-[8px] sm:text-[9px] block mb-1">Gợi ý từ giáo viên:</span>
+                             {q.pedagogicalHint}
+                           </div>
+                         </motion.div>
+                       )}
+                     </AnimatePresence>
+                   </div>
+                 )}
+               </div>
 
               <div className="grid grid-cols-1 gap-2">
                 {q.exerciseType === 'essay' ? (

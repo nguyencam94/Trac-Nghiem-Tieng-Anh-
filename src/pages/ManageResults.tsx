@@ -28,10 +28,13 @@ const ManageResults: React.FC = () => {
   const navigate = useNavigate();
   const [results, setResults] = useState<ExamResult[]>([]);
   const [allSchools, setAllSchools] = useState<string[]>([]);
+  const [schoolMap, setSchoolMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterClass, setFilterClass] = useState("");
   const [filterSchool, setFilterSchool] = useState("");
+  const [filterExam, setFilterExam] = useState("");
+  const [onlySchoolAccounts, setOnlySchoolAccounts] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -58,8 +61,21 @@ const ManageResults: React.FC = () => {
     // Real-time school accounts
     const qSchools = query(collection(db, 'school_accounts'));
     const unsubscribeSchools = onSnapshot(qSchools, (snapshot) => {
-      const schoolNames = snapshot.docs.map(doc => (doc.data() as any).schoolName);
-      setAllSchools(schoolNames);
+      const schoolNames: string[] = [];
+      const mapping: Record<string, string> = {};
+      
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.schoolName) {
+          schoolNames.push(data.schoolName);
+          if (data.username) {
+            mapping[data.username.trim().toLowerCase()] = data.schoolName;
+          }
+        }
+      });
+      
+      setAllSchools(Array.from(new Set(schoolNames)));
+      setSchoolMap(mapping);
     }, (error) => {
       console.error("Error fetching schools:", error);
     });
@@ -86,25 +102,45 @@ const ManageResults: React.FC = () => {
 
   const filteredResults = useMemo(() => {
     return results.filter(r => {
+      const cleanUserEmail = r.userEmail?.trim().toLowerCase();
+      const currentSchoolAccountName = cleanUserEmail ? schoolMap[cleanUserEmail] : null;
+      const currentSchoolName = r.schoolName || currentSchoolAccountName;
+      
       const matchesSearch = 
         (r.studentName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
         (r.userEmail?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
         (r.examSource?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-        (r.schoolName?.toLowerCase() || "").includes(searchTerm.toLowerCase());
+        (currentSchoolName?.toLowerCase() || "").includes(searchTerm.toLowerCase());
       
       const matchesClass = filterClass === "" || r.studentClass === filterClass;
       const matchesSchool = filterSchool === "" || 
-        (r.schoolName?.trim().toLowerCase() === filterSchool.trim().toLowerCase());
+        (currentSchoolName?.trim().toLowerCase() === filterSchool.trim().toLowerCase());
       
-      return matchesSearch && matchesClass && matchesSchool;
+      const matchesExam = filterExam === "" || r.examSource === filterExam;
+      
+      const matchesSchoolAccount = !onlySchoolAccounts || cleanUserEmail?.startsWith('thcs');
+      
+      return matchesSearch && matchesClass && matchesSchool && matchesExam && matchesSchoolAccount;
     });
-  }, [results, searchTerm, filterClass, filterSchool]);
+  }, [results, searchTerm, filterClass, filterSchool, filterExam, onlySchoolAccounts, schoolMap]);
 
   const classes = Array.from(new Set(results.map(r => r.studentClass).filter(Boolean))).sort();
   const schools = Array.from(new Set([
     ...allSchools,
     ...results.map(r => r.schoolName).filter(Boolean)
   ])).sort();
+
+  const exams = Array.from(new Set(results.map(r => r.examSource).filter(Boolean))).sort();
+
+  const stats = useMemo(() => {
+    const validResults = filteredResults.filter(r => typeof r.score === 'number' && !isNaN(r.score));
+    return {
+      total: filteredResults.length,
+      avgScore: validResults.length > 0 ? validResults.reduce((acc, curr) => acc + curr.score, 0) / validResults.length : 0,
+      highScore: validResults.length > 0 ? Math.max(...validResults.map(r => r.score)) : 0,
+      uniqueStudents: new Set(filteredResults.map(r => r.userId)).size
+    };
+  }, [filteredResults]);
 
   if (loading) {
     return (
@@ -113,13 +149,6 @@ const ManageResults: React.FC = () => {
       </div>
     );
   }
-
-  const stats = {
-    total: results.length,
-    avgScore: results.length > 0 ? results.reduce((acc, curr) => acc + curr.score, 0) / results.length : 0,
-    highScore: results.length > 0 ? Math.max(...results.map(r => r.score)) : 0,
-    uniqueStudents: new Set(results.map(r => r.userId)).size
-  };
 
   return (
     <div className="space-y-8 pb-12">
@@ -135,86 +164,121 @@ const ManageResults: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-3xl border border-neutral-200 shadow-sm space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Tổng lượt thi</p>
-            <BookOpen className="w-4 h-4 text-blue-500" />
+      {/* Contextual Stats & Filters */}
+      <div className="bg-white p-6 rounded-[2rem] border border-neutral-200 shadow-sm space-y-8">
+        {/* Statistics Bar */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-neutral-50 rounded-3xl border border-neutral-100">
+          <div className="flex flex-col items-center justify-center py-2 px-4 border-r border-neutral-200 last:border-0">
+            <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">Tổng lượt thi</span>
+            <span className="text-xl font-black text-neutral-900">{stats.total}</span>
           </div>
-          <p className="text-3xl font-black text-neutral-900">{stats.total}</p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-neutral-200 shadow-sm space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Số học sinh</p>
-            <Users className="w-4 h-4 text-emerald-500" />
+          <div className="flex flex-col items-center justify-center py-2 px-4 border-r border-neutral-200 last:border-0">
+            <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">Số học sinh</span>
+            <span className="text-xl font-black text-neutral-900">{stats.uniqueStudents}</span>
           </div>
-          <p className="text-3xl font-black text-neutral-900">{stats.uniqueStudents}</p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-neutral-200 shadow-sm space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Điểm trung bình</p>
-            <Target className="w-4 h-4 text-amber-500" />
-          </div>
-          <p className="text-3xl font-black text-neutral-900">{stats.avgScore.toFixed(1)}</p>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-neutral-200 shadow-sm space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-neutral-500 uppercase tracking-wider">Điểm cao nhất</p>
-            <Award className="w-4 h-4 text-purple-500" />
-          </div>
-          <p className="text-3xl font-black text-neutral-900">{stats.highScore.toFixed(1)}</p>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="bg-white p-6 rounded-[2rem] border border-neutral-200 shadow-sm flex flex-col items-stretch gap-6">
-        <div className="space-y-2">
-          <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Tìm kiếm nhanh</label>
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
-            <input 
-              type="text"
-              placeholder="Tìm theo tên học sinh, đề thi..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-100 rounded-2xl focus:ring-4 focus:ring-blue-50 focus:border-blue-400 outline-none transition-all font-bold text-neutral-700 text-sm"
-            />
-          </div>
-        </div>
-        
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-6 pt-4 border-t border-neutral-50">
-          <div className="flex-1 space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Lọc theo trường</label>
-            <div className="flex items-center gap-3 bg-neutral-50 border border-neutral-100 rounded-2xl px-4 py-1">
-              <School className="w-5 h-5 text-neutral-400" />
-              <select 
-                value={filterSchool}
-                onChange={(e) => setFilterSchool(e.target.value)}
-                className="flex-1 py-3 outline-none bg-transparent font-bold text-neutral-700"
-              >
-                <option value="">Tất cả trường</option>
-                {schools.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+          <div className="flex flex-col items-center justify-center py-2 px-4 border-r border-neutral-200 last:border-0">
+            <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">Điểm TB</span>
+            <div className="flex items-center gap-1.5">
+              <Target className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-xl font-black text-neutral-900">{stats.avgScore.toFixed(1)}</span>
             </div>
           </div>
+          <div className="flex flex-col items-center justify-center py-2 px-4 last:border-0">
+            <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-1">Cao nhất</span>
+            <div className="flex items-center gap-1.5">
+              <Award className="w-3.5 h-3.5 text-purple-500" />
+              <span className="text-xl font-black text-neutral-900">{stats.highScore.toFixed(1)}</span>
+            </div>
+          </div>
+        </div>
 
-          <div className="flex-1 space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Lọc theo lớp</label>
-            <div className="flex items-center gap-3 bg-neutral-50 border border-neutral-100 rounded-2xl px-4 py-1">
-              <Filter className="w-5 h-5 text-neutral-400" />
-              <select 
-                value={filterClass}
-                onChange={(e) => setFilterClass(e.target.value)}
-                className="flex-1 py-3 outline-none bg-transparent font-bold text-neutral-700"
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Tìm kiếm nhanh</label>
+              <div className="relative flex-1">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
+                <input 
+                  type="text"
+                  placeholder="Tìm theo tên học sinh, đề thi..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 bg-neutral-50 border border-neutral-100 rounded-2xl focus:ring-4 focus:ring-blue-50 focus:border-blue-400 outline-none transition-all font-bold text-neutral-700 text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Lọc theo đề thi</label>
+              <div className="flex items-center gap-3 bg-neutral-50 border border-neutral-100 rounded-2xl px-4 py-1">
+                <BookOpen className="w-5 h-5 text-neutral-400" />
+                <select 
+                  value={filterExam}
+                  onChange={(e) => setFilterExam(e.target.value)}
+                  className="flex-1 py-3 outline-none bg-transparent font-bold text-neutral-700"
+                >
+                  <option value="">Tất cả đề thi</option>
+                  {exams.map(ex => (
+                    <option key={ex} value={ex}>{ex}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-6 pt-6 border-t border-neutral-50">
+            <div className="flex-1 space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Lọc theo trường</label>
+              <div className="flex items-center gap-3 bg-neutral-50 border border-neutral-100 rounded-2xl px-4 py-1">
+                <School className="w-5 h-5 text-neutral-400" />
+                <select 
+                  value={filterSchool}
+                  onChange={(e) => setFilterSchool(e.target.value)}
+                  className="flex-1 py-3 outline-none bg-transparent font-bold text-neutral-700"
+                >
+                  <option value="">Tất cả trường</option>
+                  {schools.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Lọc theo lớp</label>
+              <div className="flex items-center gap-3 bg-neutral-50 border border-neutral-100 rounded-2xl px-4 py-1">
+                <Filter className="w-5 h-5 text-neutral-400" />
+                <select 
+                  value={filterClass}
+                  onChange={(e) => setFilterClass(e.target.value)}
+                  className="flex-1 py-3 outline-none bg-transparent font-bold text-neutral-700"
+                >
+                  <option value="">Tất cả lớp</option>
+                  {classes.map(c => (
+                    <option key={c} value={c}>Lớp {c}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-2">Phân loại tài khoản</label>
+              <button
+                onClick={() => setOnlySchoolAccounts(!onlySchoolAccounts)}
+                className={`w-full flex items-center justify-between px-4 py-3 border-2 rounded-2xl font-bold text-sm transition-all ${
+                  onlySchoolAccounts 
+                    ? 'bg-amber-50 border-amber-200 text-amber-600' 
+                    : 'bg-neutral-50 border-neutral-100 text-neutral-400 hover:border-neutral-200'
+                }`}
               >
-                <option value="">Tất cả lớp</option>
-                {classes.map(c => (
-                  <option key={c} value={c}>Lớp {c}</option>
-                ))}
-              </select>
+                <div className="flex items-center gap-2">
+                  <School className="w-5 h-5" />
+                  <span>Tài khoản trường</span>
+                </div>
+                <div className={`w-10 h-6 rounded-full relative transition-colors ${onlySchoolAccounts ? 'bg-amber-500' : 'bg-neutral-200'}`}>
+                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${onlySchoolAccounts ? 'left-5' : 'left-1'}`} />
+                </div>
+              </button>
             </div>
           </div>
         </div>
@@ -243,17 +307,35 @@ const ManageResults: React.FC = () => {
                         <span className="text-sm font-bold text-neutral-900">{result.studentName || 'N/A'}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-blue-600 font-black uppercase tracking-wider">Lớp {result.studentClass || 'N/A'}</span>
-                          {result.schoolName && (
-                            <>
-                              <span className="text-[10px] text-neutral-300">•</span>
-                              <span className="text-[10px] text-amber-600 font-black uppercase tracking-wider">{result.schoolName}</span>
-                            </>
-                          )}
+                          {(() => {
+                            const cleanEmail = result.userEmail?.trim().toLowerCase();
+                            const schoolFromMap = cleanEmail ? schoolMap[cleanEmail] : null;
+                            const schoolToShow = result.schoolName || schoolFromMap;
+                            
+                            if (schoolToShow) {
+                              return (
+                                <>
+                                  <span className="text-[10px] text-neutral-300">•</span>
+                                  <span className="text-[10px] text-amber-600 font-black uppercase tracking-wider">
+                                    {schoolToShow}
+                                  </span>
+                                </>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-xs text-neutral-500 font-medium">{result.userEmail}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-neutral-500 font-medium">{result.userEmail}</span>
+                        {result.userEmail?.toLowerCase().startsWith('thcs') && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 text-[8px] font-black uppercase tracking-widest border border-amber-200">
+                            TRƯỜNG HỌC
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-sm font-bold text-neutral-700">{result.examSource}</span>
@@ -261,11 +343,12 @@ const ManageResults: React.FC = () => {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <span className={`px-2.5 py-1 rounded-lg text-xs font-black ${
+                          isNaN(result.score) ? 'bg-neutral-100 text-neutral-400' :
                           result.score >= 8 ? 'bg-emerald-100 text-emerald-700' :
                           result.score >= 5 ? 'bg-blue-100 text-blue-700' :
                           'bg-rose-100 text-rose-700'
                         }`}>
-                          {result.score.toFixed(1)}
+                          {isNaN(result.score) ? 'N/A' : result.score.toFixed(1)}
                         </span>
                         <span className="text-[10px] font-bold text-neutral-400">
                           {result.correctCount}/{result.totalQuestions}

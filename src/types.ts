@@ -21,6 +21,7 @@ export interface Question {
   imageUrl?: string; // Optional image URL for 'look at picture and guess' questions
   essayAnswer?: string; // Optional answer for essay/short answer questions
   hint?: string; // Optional hint for essay questions (e.g., "I wish...")
+  pedagogicalHint?: string; // Optional pedagogical hint to guide the student
   authorId?: string; // ID of the user who created the question
 }
 

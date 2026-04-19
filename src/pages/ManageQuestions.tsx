@@ -381,6 +381,15 @@ const QuestionFormModal = React.memo(({
                         </div>
                       </div>
                       <div className="space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Gợi ý học tập (hiện khi bấm nút gợi ý)</label>
+                        <textarea
+                          value={formData.pedagogicalHint}
+                          onChange={(e) => setFormData({ ...formData, pedagogicalHint: e.target.value })}
+                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all h-20"
+                          placeholder="Nhập gợi ý hướng dẫn học sinh suy nghĩ..."
+                        />
+                      </div>
+                      <div className="space-y-1.5">
                         <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Nguồn đề thi (tùy chọn)</label>
                         <input
                           type="text"
@@ -698,6 +707,13 @@ const QuestionCard = React.memo(({
           <span className="text-[10px] font-bold">Gợi ý: {q.hint}</span>
         </div>
       )}
+
+      {q.pedagogicalHint && (
+        <div className="mt-3 flex items-center gap-1.5 text-amber-600 bg-amber-50/50 p-2 rounded-lg border border-amber-100/50 w-fit">
+          <Sparkles className="w-3.5 h-3.5" />
+          <span className="text-[10px] font-bold uppercase tracking-wider">Học tập: {q.pedagogicalHint}</span>
+        </div>
+      )}
     </div>
   );
 });
@@ -751,6 +767,7 @@ const ManageQuestions: React.FC = () => {
     passageId: '',
     essayAnswer: '',
     hint: '',
+    pedagogicalHint: '',
   });
 
   const exerciseTypes = useMemo(() => [
@@ -893,6 +910,7 @@ const ManageQuestions: React.FC = () => {
       passageId: q.passageId || '',
       essayAnswer: q.essayAnswer || '',
       hint: q.hint || '',
+      pedagogicalHint: q.pedagogicalHint || '',
     });
     setEditingId(q.id);
     setIsModalOpen(true);
@@ -1144,7 +1162,7 @@ const ManageQuestions: React.FC = () => {
             Dịch giải thích (AI)
           </button>
           <button
-            onClick={() => { setIsModalOpen(true); setEditingId(null); setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '', essayAnswer: '', hint: '' }); }}
+            onClick={() => { setIsModalOpen(true); setEditingId(null); setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '', essayAnswer: '', hint: '', pedagogicalHint: '' }); }}
             className="bg-blue-600 text-white px-4 sm:px-6 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2 text-sm sm:text-base"
           >
             <Plus className="w-4 h-4 sm:w-5 h-5" />
@@ -1167,7 +1185,7 @@ const ManageQuestions: React.FC = () => {
         onSuccess={() => {
           setIsModalOpen(false);
           setEditingId(null);
-          setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '', essayAnswer: '', hint: '' });
+          setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '', essayAnswer: '', hint: '', pedagogicalHint: '' });
         }}
       />
 
