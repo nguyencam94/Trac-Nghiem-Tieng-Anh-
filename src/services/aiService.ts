@@ -15,6 +15,7 @@ export interface ParsedQuestion {
   passageId?: string;
   essayAnswer?: string;
   hint?: string;
+  pedagogicalHint?: string;
 }
 
 const SYSTEM_PROMPT = `Parse ALL questions from the provided content into a structured list of English questions. 
@@ -28,7 +29,8 @@ Rules:
 4. exerciseType must be one of: 'multiple_choice', 'fill_blank', 'error_find', 'synonym_antonym', 'pronunciation_stress', 'sentence_transformation', 'reorder', 'reading_comprehension', 'essay', 'other'.
 5. If questions are part of a reading passage, extract the passage and assign a consistent passageId (e.g., "passage_1").
 6. Provide a concise explanation for the correct answer in Vietnamese (max 50 words).
-7. Use Markdown for formatting (e.g., **bold** for keywords).`;
+7. Provide a "pedagogicalHint" (gợi ý học tập) in Vietnamese for each question. This should be a subtle clue or strategy to help students solve the question without giving away the answer directly.
+8. Use Markdown for formatting (e.g., **bold** for keywords).`;
 
 const tryFixTruncatedJson = (json: string): string => {
   try {
@@ -109,7 +111,8 @@ const RESPONSE_CONFIG = {
         passage: { type: Type.STRING, description: "Reading passage text if applicable." },
         passageId: { type: Type.STRING, description: "Unique ID for the passage group." },
         essayAnswer: { type: Type.STRING, description: "The correct answer for essay/short answer questions." },
-        hint: { type: Type.STRING, description: "The starting phrase or hint for essay questions (e.g., 'I wish...')." }
+        hint: { type: Type.STRING, description: "The starting phrase or hint for essay questions (e.g., 'I wish...')." },
+        pedagogicalHint: { type: Type.STRING, description: "A pedagogical hint in Vietnamese to help students solve the question." }
       },
       required: ["text", "options", "correctOption", "difficulty", "exerciseType"]
     }

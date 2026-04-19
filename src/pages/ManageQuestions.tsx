@@ -27,7 +27,8 @@ const QuestionFormModal = React.memo(({
     userUid,
     authors,
     uniqueSources,
-    onSuccess
+    onSuccess,
+    onLastUsedSourceChange
   }: {
     isOpen: boolean;
     onClose: () => void;
@@ -40,6 +41,7 @@ const QuestionFormModal = React.memo(({
     authors: UserProfile[];
     uniqueSources: string[];
     onSuccess: () => void;
+    onLastUsedSourceChange: (source: string) => void;
   }) => {
     const [formData, setFormData] = useState(initialData);
     const [isUploading, setIsUploading] = useState(false);
@@ -143,6 +145,12 @@ const QuestionFormModal = React.memo(({
             authorId: userUid
           });
         }
+
+        if (formData.source) {
+          localStorage.setItem('lastUsedSource', formData.source);
+          onLastUsedSourceChange(formData.source);
+        }
+
         onSuccess();
       } catch (error) {
         handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, editingId ? `questions/${editingId}` : 'questions');
@@ -718,6 +726,343 @@ const QuestionCard = React.memo(({
   );
 });
 
+const BulkAiImportModal = React.memo(({
+    isOpen,
+    onClose,
+    categories,
+    exerciseTypes,
+    uniqueSources,
+    userUid,
+    onLastUsedSourceChange
+  }: {
+    isOpen: boolean;
+    onClose: () => void;
+    categories: Category[];
+    exerciseTypes: any[];
+    uniqueSources: string[];
+    userUid?: string;
+    onLastUsedSourceChange: (source: string) => void;
+  }) => {
+    const [bulkRawText, setBulkRawText] = useState('');
+    const [isParsing, setIsParsing] = useState(false);
+    const [parsedQuestions, setParsedQuestions] = useState<ParsedQuestion[]>([]);
+    const [bulkCategoryId, setBulkCategoryId] = useState('');
+    const [bulkExerciseType, setBulkExerciseType] = useState('multiple_choice');
+    const [bulkSource, setBulkSource] = useState('');
+    const [isSavingBulk, setIsSavingBulk] = useState(false);
+
+    const handleAiParse = async () => {
+      if (!bulkRawText.trim()) return;
+      setIsParsing(true);
+      try {
+        const result = await parseQuestionsFromText(bulkRawText);
+        setParsedQuestions(result);
+      } catch (error) {
+        console.error("AI Parse Error:", error);
+        alert("Có lỗi xảy ra khi phân tích văn bản. Vui lòng thử lại.");
+      } finally {
+        setIsParsing(false);
+      }
+    };
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      setIsParsing(true);
+      try {
+        const result = await parseQuestionsFromFile(file);
+        setParsedQuestions(result);
+      } catch (error) {
+        console.error("File Parse Error:", error);
+        alert("Có lỗi xảy ra khi phân tích tệp. Vui lòng đảm bảo tệp hợp lệ (PDF, DOCX hoặc Ảnh).");
+      } finally {
+        setIsParsing(false);
+        e.target.value = '';
+      }
+    };
+
+    const handleSaveBulk = async () => {
+      if (!bulkCategoryId || parsedQuestions.length === 0) return;
+      setIsSavingBulk(true);
+      try {
+        let index = 0;
+        for (const q of parsedQuestions) {
+          const finalType = q.exerciseType === 'essay' ? 'essay' : (bulkExerciseType || q.exerciseType || 'multiple_choice');
+          
+          await addDoc(collection(db, 'questions'), {
+            ...q,
+            categoryId: bulkCategoryId,
+            exerciseType: finalType,
+            source: bulkSource || q.source || '',
+            essayAnswer: q.essayAnswer || '',
+            createdAt: new Date().toISOString(),
+            order: index++,
+            authorId: userUid
+          });
+        }
+        
+        if (bulkSource) {
+          localStorage.setItem('lastUsedSource', bulkSource);
+          onLastUsedSourceChange(bulkSource);
+        }
+
+        onClose();
+        setBulkRawText('');
+        setParsedQuestions([]);
+        setBulkCategoryId('');
+        setBulkSource('');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, 'questions');
+      } finally {
+        setIsSavingBulk(false);
+      }
+    };
+
+    if (!isOpen) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm"
+        />
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          className="relative w-full max-w-5xl max-h-[90vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+        >
+          <div className="p-4 sm:p-6 border-b border-neutral-100 flex items-center justify-between bg-white sticky top-0 z-10">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <h2 className="text-xl font-black text-neutral-900">Nhập câu hỏi nhanh bằng AI</h2>
+            </div>
+            <button onClick={onClose} className="p-2 hover:bg-neutral-100 rounded-xl transition-colors text-neutral-400">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept=".pdf,.docx,image/*"
+                      onChange={handleFileChange}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      disabled={isParsing}
+                    />
+                    <div className="bg-blue-50 border-2 border-dashed border-blue-200 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 text-blue-600 hover:bg-blue-100 transition-all">
+                      <Upload className="w-6 h-6" />
+                      <span className="text-xs font-bold">Tải tệp lên</span>
+                    </div>
+                  </div>
+                  <div className="bg-neutral-50 border-2 border-dashed border-neutral-200 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 text-neutral-400">
+                    <div className="flex gap-2">
+                      <FileText className="w-5 h-5" />
+                      <ImageIcon className="w-5 h-5" />
+                    </div>
+                    <span className="text-[10px] font-medium">PDF, DOCX, Ảnh</span>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                    <div className="w-full border-t border-neutral-200"></div>
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-white px-2 text-neutral-400 font-bold tracking-widest">Hoặc dán văn bản</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <textarea
+                    value={bulkRawText}
+                    onChange={(e) => setBulkRawText(e.target.value)}
+                    className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none h-[250px] text-sm transition-all font-mono"
+                    placeholder="Dán nội dung câu hỏi từ PDF, Website hoặc tài liệu của bạn vào đây..."
+                  />
+                  <div className="flex items-center justify-between mt-1">
+                    <p className="text-[10px] text-neutral-400">AI sẽ tự động nhận diện câu hỏi, đáp án, giải thích và bài đọc hiểu.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleAiParse}
+                  disabled={isParsing || !bulkRawText.trim()}
+                  className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isParsing ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Đang phân tích...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-5 h-5" />
+                      Phân tích bằng AI
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Kết quả phân tích ({parsedQuestions.length})</label>
+                    <div className="flex flex-wrap items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-bold text-neutral-500 uppercase">Dạng bài:</label>
+                        <select
+                          value={bulkExerciseType}
+                          onChange={(e) => setBulkExerciseType(e.target.value)}
+                          className="bg-neutral-50 border border-neutral-200 rounded-lg px-2 py-1 text-xs font-bold text-emerald-600 outline-none"
+                        >
+                          {exerciseTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-bold text-neutral-500 uppercase">Chủ đề:</label>
+                        <select
+                          value={bulkCategoryId}
+                          onChange={(e) => setBulkCategoryId(e.target.value)}
+                          className="bg-neutral-50 border border-neutral-200 rounded-lg px-2 py-1 text-xs font-bold text-blue-600 outline-none"
+                        >
+                          <option value="">Chọn...</option>
+                          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-bold text-neutral-500 uppercase">Nguồn:</label>
+                        <div className="relative group">
+                          <input
+                            type="text"
+                            value={bulkSource}
+                            onChange={(e) => setBulkSource(e.target.value)}
+                            placeholder="Ví dụ: Đề THPT 2023"
+                            className="bg-neutral-50 border border-neutral-200 rounded-lg px-2 py-1 text-xs font-bold text-neutral-600 outline-none w-32"
+                          />
+                          {uniqueSources.length > 0 && (
+                            <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-neutral-200 rounded-xl shadow-xl p-2 z-20 hidden group-focus-within:block hover:block">
+                              <p className="text-[8px] font-black text-neutral-400 uppercase tracking-widest mb-1 px-1">Chọn nhanh:</p>
+                              <div className="max-h-32 overflow-y-auto space-y-1">
+                                {uniqueSources.map(source => (
+                                  <button
+                                    key={source}
+                                    type="button"
+                                    onClick={() => setBulkSource(source)}
+                                    className="w-full text-left text-[10px] font-bold px-2 py-1.5 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-all"
+                                  >
+                                    {source}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="bg-neutral-50 border border-neutral-200 rounded-2xl h-[400px] overflow-y-auto p-4 space-y-4">
+                  {parsedQuestions.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-neutral-400 text-center space-y-2">
+                      <AlertCircle className="w-8 h-8 opacity-20" />
+                      <p className="text-sm italic">Chưa có dữ liệu. Hãy dán văn bản và nhấn "Phân tích".</p>
+                    </div>
+                  ) : (
+                    parsedQuestions.map((q, idx) => (
+                      <div key={idx} className="bg-white p-4 rounded-xl border border-neutral-200 shadow-sm space-y-3">
+                        <div className="flex justify-between items-start gap-2">
+                          <span className="w-6 h-6 rounded-full bg-neutral-900 text-white flex items-center justify-center text-[10px] font-bold shrink-0">{idx + 1}</span>
+                          <p className="text-sm font-medium text-neutral-900 flex-1">{q.text}</p>
+                          <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full border uppercase ${
+                            q.difficulty === 1 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
+                            q.difficulty === 2 ? 'bg-amber-50 text-amber-600 border-amber-200' :
+                            'bg-rose-50 text-rose-600 border-rose-200'
+                          }`}>
+                            {q.difficulty === 1 ? 'Dễ' : q.difficulty === 2 ? 'Vừa' : 'Khó'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {q.exerciseType === 'essay' ? (
+                            <div className="col-span-2 space-y-2">
+                              {q.hint && (
+                                <div className="text-[10px] p-2 rounded border bg-blue-50 border-blue-200 text-blue-700 font-bold">
+                                  Gợi ý: {q.hint}
+                                </div>
+                              )}
+                              <div className="text-[10px] p-2 rounded border bg-emerald-50 border-emerald-200 text-emerald-700 font-bold">
+                                Đáp án: {q.essayAnswer}
+                              </div>
+                            </div>
+                          ) : (
+                            q.options.map((opt, oIdx) => (
+                              <div key={oIdx} className={`text-[10px] p-1.5 rounded border ${oIdx === q.correctOption ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-bold' : 'bg-neutral-50 border-neutral-100 text-neutral-500'}`}>
+                                {String.fromCharCode(65 + oIdx)}. {opt}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                        {q.passageId && (
+                          <div className="flex items-center gap-1 text-[8px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100">
+                            <BookOpen className="w-3 h-3" />
+                            Bài đọc: {q.passageId}
+                          </div>
+                        )}
+                        {q.essayAnswer && (
+                          <div className="text-[10px] p-2 bg-blue-50 border border-blue-100 rounded text-blue-700">
+                            <span className="font-bold uppercase tracking-widest text-[8px] block mb-1">Đáp án tự luận:</span>
+                            {q.essayAnswer}
+                          </div>
+                        )}
+                        {q.pedagogicalHint && (
+                          <div className="text-[10px] p-2 bg-amber-50 border border-amber-100 rounded text-amber-700">
+                            <div className="flex items-center gap-1.5 font-bold uppercase tracking-widest text-[8px] mb-1">
+                              <Sparkles className="w-3 h-3" />
+                              Gợi ý học tập (AI):
+                            </div>
+                            {q.pedagogicalHint}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <button
+                  onClick={handleSaveBulk}
+                  disabled={isSavingBulk || parsedQuestions.length === 0 || !bulkCategoryId}
+                  className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSavingBulk ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Đang lưu tất cả...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-5 h-5" />
+                      Lưu {parsedQuestions.length} câu hỏi
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
+  });
+
 const ManageQuestions: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile, loading: authLoading } = useAuth();
@@ -736,13 +1081,6 @@ const ManageQuestions: React.FC = () => {
   
   // Bulk Import state
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
-  const [bulkRawText, setBulkRawText] = useState('');
-  const [isParsing, setIsParsing] = useState(false);
-  const [parsedQuestions, setParsedQuestions] = useState<ParsedQuestion[]>([]);
-  const [bulkCategoryId, setBulkCategoryId] = useState('');
-  const [bulkExerciseType, setBulkExerciseType] = useState('multiple_choice');
-  const [bulkSource, setBulkSource] = useState('');
-  const [isSavingBulk, setIsSavingBulk] = useState(false);
 
   // Duplicate scan state
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
@@ -751,6 +1089,7 @@ const ManageQuestions: React.FC = () => {
   const [isTranslating, setIsTranslating] = useState(false);
   const [isTranslateConfirmOpen, setIsTranslateConfirmOpen] = useState(false);
   const [translationStatus, setTranslationStatus] = useState<{ total: number, current: number, success: number } | null>(null);
+  const [lastUsedSource, setLastUsedSource] = useState(() => localStorage.getItem('lastUsedSource') || '');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -931,70 +1270,24 @@ const ManageQuestions: React.FC = () => {
 
   const recentIds = useMemo(() => questions.slice(0, 30).map(q => q.id), [questions]);
 
-  const uniqueSources = useMemo(() => Array.from(new Set(questions.map(q => q.source || 'Nguồn tổng hợp'))) as string[], [questions]);
-
-  const handleAiParse = async () => {
-    if (!bulkRawText.trim()) return;
-    setIsParsing(true);
-    try {
-      const result = await parseQuestionsFromText(bulkRawText);
-      setParsedQuestions(result);
-    } catch (error) {
-      console.error("AI Parse Error:", error);
-      alert("Có lỗi xảy ra khi phân tích văn bản. Vui lòng thử lại.");
-    } finally {
-      setIsParsing(false);
+  const uniqueSources = useMemo(() => {
+    const sources = Array.from(new Set(questions.map(q => q.source || 'Nguồn tổng hợp'))) as string[];
+    if (lastUsedSource && sources.includes(lastUsedSource)) {
+      return [lastUsedSource, ...sources.filter(s => s !== lastUsedSource)];
     }
+    return sources;
+  }, [questions, lastUsedSource]);
+
+  const handleAiParse = () => {
+    // Moved to BulkAiImportModal
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsParsing(true);
-    try {
-      const result = await parseQuestionsFromFile(file);
-      setParsedQuestions(result);
-    } catch (error) {
-      console.error("File Parse Error:", error);
-      alert("Có lỗi xảy ra khi phân tích tệp. Vui lòng đảm bảo tệp hợp lệ (PDF, DOCX hoặc Ảnh).");
-    } finally {
-      setIsParsing(false);
-      // Reset input
-      e.target.value = '';
-    }
+  const handleFileChange = () => {
+    // Moved to BulkAiImportModal
   };
 
-  const handleSaveBulk = async () => {
-    if (!bulkCategoryId || parsedQuestions.length === 0) return;
-    setIsSavingBulk(true);
-    try {
-      let index = 0;
-      for (const q of parsedQuestions) {
-        // Use AI detected type if it's essay, otherwise use bulk override if provided
-        const finalType = q.exerciseType === 'essay' ? 'essay' : (bulkExerciseType || q.exerciseType || 'multiple_choice');
-        
-        await addDoc(collection(db, 'questions'), {
-          ...q,
-          categoryId: bulkCategoryId,
-          exerciseType: finalType,
-          source: bulkSource || q.source || '', // Set batch source or use AI-extracted one
-          essayAnswer: q.essayAnswer || '',
-          createdAt: new Date().toISOString(),
-          order: index++, // Maintain sequence from AI parsing
-          authorId: user?.uid
-        });
-      }
-      setIsBulkModalOpen(false);
-      setBulkRawText('');
-      setParsedQuestions([]);
-      setBulkCategoryId('');
-      setBulkSource('');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'questions');
-    } finally {
-      setIsSavingBulk(false);
-    }
+  const handleSaveBulk = () => {
+    // Moved to BulkAiImportModal
   };
 
   const handleScanDuplicates = () => {
@@ -1187,6 +1480,7 @@ const ManageQuestions: React.FC = () => {
           setEditingId(null);
           setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '', essayAnswer: '', hint: '', pedagogicalHint: '' });
         }}
+        onLastUsedSourceChange={setLastUsedSource}
       />
 
       {/* Translation Confirmation Modal */}
@@ -1264,278 +1558,15 @@ const ManageQuestions: React.FC = () => {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {isBulkModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsBulkModalOpen(false)}
-              className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-5xl max-h-[90vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col"
-            >
-              <div className="p-4 sm:p-6 border-b border-neutral-100 flex items-center justify-between bg-white sticky top-0 z-10">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
-                    <Sparkles className="w-5 h-5" />
-                  </div>
-                  <h2 className="text-xl font-black text-neutral-900">Nhập câu hỏi nhanh bằng AI</h2>
-                </div>
-                <button onClick={() => setIsBulkModalOpen(false)} className="p-2 hover:bg-neutral-100 rounded-xl transition-colors text-neutral-400">
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-8">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Input Section */}
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="relative">
-                        <input
-                          type="file"
-                          accept=".pdf,.docx,image/*"
-                          onChange={handleFileChange}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                          disabled={isParsing}
-                        />
-                        <div className="bg-blue-50 border-2 border-dashed border-blue-200 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 text-blue-600 hover:bg-blue-100 transition-all">
-                          <Upload className="w-6 h-6" />
-                          <span className="text-xs font-bold">Tải tệp lên</span>
-                        </div>
-                      </div>
-                      <div className="bg-neutral-50 border-2 border-dashed border-neutral-200 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 text-neutral-400">
-                        <div className="flex gap-2">
-                          <FileText className="w-5 h-5" />
-                          <ImageIcon className="w-5 h-5" />
-                        </div>
-                        <span className="text-[10px] font-medium">PDF, DOCX, Ảnh</span>
-                      </div>
-                    </div>
-
-                    <div className="relative">
-                      <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                        <div className="w-full border-t border-neutral-200"></div>
-                      </div>
-                      <div className="relative flex justify-center text-xs uppercase">
-                        <span className="bg-white px-2 text-neutral-400 font-bold tracking-widest">Hoặc dán văn bản</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <textarea
-                        value={bulkRawText}
-                        onChange={(e) => setBulkRawText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                            e.preventDefault();
-                            const target = e.target as HTMLTextAreaElement;
-                            const start = target.selectionStart;
-                            const end = target.selectionEnd;
-                            const value = bulkRawText;
-                            const newValue = value.substring(0, start) + "\n\n" + value.substring(end);
-                            setBulkRawText(newValue);
-                            setTimeout(() => {
-                              target.selectionStart = target.selectionEnd = start + 2;
-                            }, 0);
-                          }
-                        }}
-                        className="w-full bg-neutral-50 border border-neutral-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none h-[250px] text-sm transition-all font-mono"
-                        placeholder="Dán nội dung câu hỏi từ PDF, Website hoặc tài liệu của bạn vào đây..."
-                      />
-                      <div className="flex items-center justify-between mt-1">
-                        <p className="text-[10px] text-neutral-400">AI sẽ tự động nhận diện câu hỏi, đáp án, giải thích và bài đọc hiểu.</p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const textarea = document.querySelector('textarea[placeholder*="Dán nội dung câu hỏi"]') as HTMLTextAreaElement;
-                            if (textarea) {
-                              const start = textarea.selectionStart;
-                              const end = textarea.selectionEnd;
-                              const value = bulkRawText;
-                              const newValue = value.substring(0, start) + "\n\n" + value.substring(end);
-                              setBulkRawText(newValue);
-                              textarea.focus();
-                              setTimeout(() => {
-                                textarea.selectionStart = textarea.selectionEnd = start + 2;
-                              }, 0);
-                            }
-                          }}
-                          className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded-lg transition-all"
-                        >
-                          <Plus className="w-3 h-3" />
-                          Ngắt đoạn (Ctrl + Enter)
-                        </button>
-                      </div>
-                    </div>
-                    <button
-                      onClick={handleAiParse}
-                      disabled={isParsing || !bulkRawText.trim()}
-                      className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isParsing ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          Đang phân tích...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-5 h-5" />
-                          Phân tích bằng AI
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Preview Section */}
-                  <div className="space-y-4">
-                    <div className="flex flex-col gap-4">
-                      <div className="flex items-center justify-between gap-4">
-                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Kết quả phân tích ({parsedQuestions.length})</label>
-                        <div className="flex flex-wrap items-center gap-4">
-                          <div className="flex items-center gap-2">
-                            <label className="text-[10px] font-bold text-neutral-500 uppercase">Dạng bài:</label>
-                            <select
-                              value={bulkExerciseType}
-                              onChange={(e) => setBulkExerciseType(e.target.value)}
-                              className="bg-neutral-50 border border-neutral-200 rounded-lg px-2 py-1 text-xs font-bold text-emerald-600 outline-none"
-                              required
-                            >
-                              {exerciseTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                            </select>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <label className="text-[10px] font-bold text-neutral-500 uppercase">Chủ đề:</label>
-                            <select
-                              value={bulkCategoryId}
-                              onChange={(e) => setBulkCategoryId(e.target.value)}
-                              className="bg-neutral-50 border border-neutral-200 rounded-lg px-2 py-1 text-xs font-bold text-blue-600 outline-none"
-                              required
-                            >
-                              <option value="">Chọn...</option>
-                              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <label className="text-[10px] font-bold text-neutral-500 uppercase">Nguồn:</label>
-                            <div className="relative group">
-                              <input
-                                type="text"
-                                value={bulkSource}
-                                onChange={(e) => setBulkSource(e.target.value)}
-                                placeholder="Ví dụ: Đề THPT 2023"
-                                className="bg-neutral-50 border border-neutral-200 rounded-lg px-2 py-1 text-xs font-bold text-neutral-600 outline-none w-32"
-                              />
-                              {uniqueSources.length > 0 && (
-                                <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-neutral-200 rounded-xl shadow-xl p-2 z-20 hidden group-focus-within:block hover:block">
-                                  <p className="text-[8px] font-black text-neutral-400 uppercase tracking-widest mb-1 px-1">Chọn nhanh:</p>
-                                  <div className="max-h-32 overflow-y-auto space-y-1">
-                                    {uniqueSources.map(source => (
-                                      <button
-                                        key={source}
-                                        type="button"
-                                        onClick={() => setBulkSource(source)}
-                                        className="w-full text-left text-[10px] font-bold px-2 py-1.5 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-all"
-                                      >
-                                        {source}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-neutral-50 border border-neutral-200 rounded-2xl h-[400px] overflow-y-auto p-4 space-y-4">
-                      {parsedQuestions.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-neutral-400 text-center space-y-2">
-                          <AlertCircle className="w-8 h-8 opacity-20" />
-                          <p className="text-sm italic">Chưa có dữ liệu. Hãy dán văn bản và nhấn "Phân tích".</p>
-                        </div>
-                      ) : (
-                        parsedQuestions.map((q, idx) => (
-                          <div key={idx} className="bg-white p-4 rounded-xl border border-neutral-200 shadow-sm space-y-3">
-                            <div className="flex justify-between items-start gap-2">
-                              <span className="w-6 h-6 rounded-full bg-neutral-900 text-white flex items-center justify-center text-[10px] font-bold shrink-0">{idx + 1}</span>
-                              <p className="text-sm font-medium text-neutral-900 flex-1">{q.text}</p>
-                              <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full border uppercase ${
-                                q.difficulty === 1 ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
-                                q.difficulty === 2 ? 'bg-amber-50 text-amber-600 border-amber-200' :
-                                'bg-rose-50 text-rose-600 border-rose-200'
-                              }`}>
-                                {q.difficulty === 1 ? 'Dễ' : q.difficulty === 2 ? 'Vừa' : 'Khó'}
-                              </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              {q.exerciseType === 'essay' ? (
-                                <div className="col-span-2 space-y-2">
-                                  {q.hint && (
-                                    <div className="text-[10px] p-2 rounded border bg-blue-50 border-blue-200 text-blue-700 font-bold">
-                                      Gợi ý: {q.hint}
-                                    </div>
-                                  )}
-                                  <div className="text-[10px] p-2 rounded border bg-emerald-50 border-emerald-200 text-emerald-700 font-bold">
-                                    Đáp án: {q.essayAnswer}
-                                  </div>
-                                </div>
-                              ) : (
-                                q.options.map((opt, oIdx) => (
-                                  <div key={oIdx} className={`text-[10px] p-1.5 rounded border ${oIdx === q.correctOption ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-bold' : 'bg-neutral-50 border-neutral-100 text-neutral-500'}`}>
-                                    {String.fromCharCode(65 + oIdx)}. {opt}
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                            {q.passageId && (
-                              <div className="flex items-center gap-1 text-[8px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100">
-                                <BookOpen className="w-3 h-3" />
-                                Bài đọc: {q.passageId}
-                              </div>
-                            )}
-                            {q.essayAnswer && (
-                              <div className="text-[10px] p-2 bg-blue-50 border border-blue-100 rounded text-blue-700">
-                                <span className="font-bold uppercase tracking-widest text-[8px] block mb-1">Đáp án tự luận:</span>
-                                {q.essayAnswer}
-                              </div>
-                            )}
-                          </div>
-                        ))
-                      )}
-                    </div>
-
-                    <button
-                      onClick={handleSaveBulk}
-                      disabled={isSavingBulk || parsedQuestions.length === 0 || !bulkCategoryId}
-                      className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isSavingBulk ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          Đang lưu tất cả...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-5 h-5" />
-                          Lưu {parsedQuestions.length} câu hỏi
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <BulkAiImportModal
+        isOpen={isBulkModalOpen}
+        onClose={() => setIsBulkModalOpen(false)}
+        categories={categories}
+        exerciseTypes={exerciseTypes}
+        uniqueSources={uniqueSources}
+        userUid={user?.uid}
+        onLastUsedSourceChange={setLastUsedSource}
+      />
 
       <AnimatePresence>
         {deleteConfirmId && (

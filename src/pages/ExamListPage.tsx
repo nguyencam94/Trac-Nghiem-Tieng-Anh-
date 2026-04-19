@@ -167,10 +167,7 @@ const ExamListPage: React.FC = () => {
                   exit={{ opacity: 0, scale: 0.95 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <Link
-                    to={`/exam/${encodeURIComponent(source)}`}
-                    className="group block bg-white p-6 sm:p-8 rounded-[2rem] border-2 border-neutral-100 shadow-xl shadow-neutral-100/50 hover:shadow-2xl hover:shadow-rose-200/40 hover:border-rose-400 transition-all duration-300 h-full"
-                  >
+                  <div className="group block bg-white p-6 sm:p-8 rounded-[2rem] border-2 border-neutral-100 shadow-xl shadow-neutral-100/50 hover:shadow-2xl hover:shadow-rose-200/40 hover:border-rose-400 transition-all duration-300 h-full">
                     <div className="flex items-start justify-between gap-4 h-full">
                       <div className="space-y-4 flex-1">
                         <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
@@ -191,12 +188,27 @@ const ExamListPage: React.FC = () => {
                             </span>
                           </div>
                         </div>
+                        
+                        <div className="pt-4 flex flex-col sm:flex-row gap-2">
+                          <Link
+                            to={`/exam/${encodeURIComponent(source)}`}
+                            className="flex-1 px-4 py-2 bg-neutral-900 text-white rounded-xl text-center text-sm font-bold hover:bg-neutral-800 transition-colors shadow-lg shadow-neutral-200"
+                          >
+                            Làm bài tiêu chuẩn
+                          </Link>
+                          <Link
+                            to={`/exam/${encodeURIComponent(source)}?hints=true`}
+                            className="flex-1 px-4 py-2 bg-amber-500 text-white rounded-xl text-center text-sm font-bold hover:bg-amber-600 transition-colors shadow-lg shadow-amber-200"
+                          >
+                            Làm bài kèm gợi ý
+                          </Link>
+                        </div>
                       </div>
                       <div className="w-10 h-10 rounded-full bg-neutral-50 text-neutral-400 flex items-center justify-center group-hover:bg-rose-600 group-hover:text-white transition-all shrink-0">
                         <ChevronRight className="w-6 h-6" />
                       </div>
                     </div>
-                  </Link>
+                  </div>
                 </motion.div>
               ))}
           </AnimatePresence>
