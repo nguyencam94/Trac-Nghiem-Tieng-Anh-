@@ -14,7 +14,7 @@ import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { motion, AnimatePresence } from 'motion/react';
-import { parseQuestionsFromText, parseQuestionsFromFile, ParsedQuestion, translateExplanation } from '../services/aiService';
+import { parseQuestionsFromText, parseQuestionsFromFile, ParsedQuestion, translateExplanation, generatePedagogicalHint } from '../services/aiService';
 
 const QuestionFormModal = React.memo(({
     isOpen,
@@ -1088,7 +1088,10 @@ const ManageQuestions: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isTranslateConfirmOpen, setIsTranslateConfirmOpen] = useState(false);
-  const [translationStatus, setTranslationStatus] = useState<{ total: number, current: number, success: number } | null>(null);
+  const [translationStatus, setTranslationStatus] = useState<{ total: number, current: number, success: number, isWaiting?: boolean } | null>(null);
+  const [isHintGenerating, setIsHintGenerating] = useState(false);
+  const [isHintConfirmOpen, setIsHintConfirmOpen] = useState(false);
+  const [hintGenerationStatus, setHintGenerationStatus] = useState<{ total: number, current: number, success: number, isWaiting?: boolean } | null>(null);
   const [lastUsedSource, setLastUsedSource] = useState(() => localStorage.getItem('lastUsedSource') || '');
 
   // Form state
@@ -1159,7 +1162,7 @@ const ManageQuestions: React.FC = () => {
   }, [profile, authLoading, navigate]);
 
   const handleTranslateAll = async () => {
-    const questionsToTranslate = questions.filter(q => q.explanation && q.explanation.trim());
+    const questionsToTranslate = filteredQuestions.filter(q => q.explanation && q.explanation.trim());
     if (questionsToTranslate.length === 0) {
       setTranslationStatus({ total: 0, current: 0, success: 0 });
       return;
@@ -1168,13 +1171,13 @@ const ManageQuestions: React.FC = () => {
   };
 
   const startTranslation = async () => {
-    const questionsToTranslate = questions.filter(q => q.explanation && q.explanation.trim());
+    const questionsToTranslate = filteredQuestions.filter(q => q.explanation && q.explanation.trim());
     setIsTranslateConfirmOpen(false);
     setIsTranslating(true);
     let successCount = 0;
     let currentCount = 0;
     
-    setTranslationStatus({ total: questionsToTranslate.length, current: 0, success: 0 });
+    setTranslationStatus({ total: questionsToTranslate.length, current: 0, success: 0, isWaiting: false });
 
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -1182,46 +1185,151 @@ const ManageQuestions: React.FC = () => {
       for (const q of questionsToTranslate) {
         currentCount++;
         
-        // Add a delay to avoid rate limits (Gemini free tier is ~15 RPM, so 4s delay is safe)
+        // Use a 7s delay to be much safer (Gemini free tier is ~15 RPM)
         if (currentCount > 1) {
-          await sleep(4000); 
+          await sleep(7000); 
         }
 
-        try {
-          const translated = await translateExplanation(q.explanation!);
-          if (translated && translated !== q.explanation) {
-            // Use updateDoc but ensure we don't trigger validation errors if fields are missing
-            // The rules require: text, options, correctOption, categoryId, createdAt, difficulty, exerciseType
-            await updateDoc(doc(db, 'questions', q.id), { 
-              explanation: translated,
-              // Ensure required fields exist if they were somehow missing in old docs
-              text: q.text,
-              options: q.options,
-              correctOption: q.correctOption,
-              categoryId: q.categoryId,
-              createdAt: q.createdAt || new Date().toISOString(),
-              difficulty: q.difficulty || 1,
-              exerciseType: q.exerciseType || 'multiple_choice'
-            });
-            successCount++;
-          }
-        } catch (err: any) {
-          console.error(`Failed to translate question ${q.id}:`, err);
-          // If it's a rate limit error, we might want to wait longer or stop
-          if (err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED')) {
-            console.log("Rate limit hit, waiting 10 seconds...");
-            await sleep(10000);
-            // Retry once? For now just continue to next
+        let retries = 0;
+        const maxRetries = 2;
+        let success = false;
+
+        while (retries <= maxRetries && !success) {
+          try {
+            const translated = await translateExplanation(q.explanation!);
+            if (translated && translated !== q.explanation) {
+              await updateDoc(doc(db, 'questions', q.id), { 
+                explanation: translated,
+                text: q.text,
+                options: q.options,
+                correctOption: q.correctOption,
+                categoryId: q.categoryId,
+                createdAt: q.createdAt || new Date().toISOString(),
+                difficulty: q.difficulty || 1,
+                exerciseType: q.exerciseType || 'multiple_choice'
+              });
+              successCount++;
+            }
+            success = true;
+          } catch (err: any) {
+            const errorStr = (err.message || err.statusText || JSON.stringify(err) || "").toString();
+            const isRateLimit = errorStr.includes('429') || 
+                                errorStr.includes('RESOURCE_EXHAUSTED') || 
+                                err.status === 429 || 
+                                err.code === 429;
+
+            if (isRateLimit) {
+              console.error(`Rate limit hit on question ${q.id} (Attempt ${retries + 1}):`, err);
+              setTranslationStatus(prev => prev ? { ...prev, isWaiting: true } : null);
+              console.log("Waiting 60 seconds before retry...");
+              await sleep(60000); // Wait 60s on rate limit
+              setTranslationStatus(prev => prev ? { ...prev, isWaiting: false } : null);
+              retries++;
+            } else {
+              console.error(`Failed to translate question ${q.id}:`, err);
+              break;
+            }
           }
         }
         
-        setTranslationStatus({ total: questionsToTranslate.length, current: currentCount, success: successCount });
+        setTranslationStatus({ 
+          total: questionsToTranslate.length, 
+          current: currentCount, 
+          success: successCount,
+          isWaiting: false
+        });
       }
     } catch (error) {
       console.error("Translation Loop Error:", error);
     } finally {
       setIsTranslating(false);
       setTimeout(() => setTranslationStatus(null), 5000);
+    }
+  };
+
+  const handleGenerateAllHints = async () => {
+    const questionsWithoutHints = filteredQuestions.filter(q => !q.pedagogicalHint || !q.pedagogicalHint.trim());
+    if (questionsWithoutHints.length === 0) {
+      alert("Tất cả câu hỏi trong danh sách đang lọc đều đã có gợi ý hoặc không có câu hỏi nào để xử lý!");
+      return;
+    }
+    setIsHintConfirmOpen(true);
+  };
+
+  const startHintGeneration = async () => {
+    const questionsWithoutHints = filteredQuestions.filter(q => !q.pedagogicalHint || !q.pedagogicalHint.trim());
+    setIsHintConfirmOpen(false);
+    setIsHintGenerating(true);
+    let successCount = 0;
+    let currentCount = 0;
+    
+    setHintGenerationStatus({ total: questionsWithoutHints.length, current: 0, success: 0, isWaiting: false });
+
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+    try {
+      for (const q of questionsWithoutHints) {
+        currentCount++;
+        
+        // Use 7s delay to be much safer
+        if (currentCount > 1) {
+          await sleep(7000); 
+        }
+
+        let retries = 0;
+        const maxRetries = 2;
+        let success = false;
+
+        while (retries <= maxRetries && !success) {
+          try {
+            const hint = await generatePedagogicalHint(q.text, q.options, q.exerciseType);
+            if (hint) {
+              await updateDoc(doc(db, 'questions', q.id), { 
+                pedagogicalHint: hint,
+                text: q.text,
+                options: q.options,
+                correctOption: q.correctOption,
+                categoryId: q.categoryId,
+                createdAt: q.createdAt || new Date().toISOString(),
+                difficulty: q.difficulty || 1,
+                exerciseType: q.exerciseType || 'multiple_choice'
+              });
+              successCount++;
+            }
+            success = true;
+          } catch (err: any) {
+            const errorStr = (err.message || err.statusText || JSON.stringify(err) || "").toString();
+            const isRateLimit = errorStr.includes('429') || 
+                                errorStr.includes('RESOURCE_EXHAUSTED') || 
+                                err.status === 429 || 
+                                err.code === 429;
+
+            if (isRateLimit) {
+              console.error(`Rate limit hit on question ${q.id} (Attempt ${retries + 1}):`, err);
+              setHintGenerationStatus(prev => prev ? { ...prev, isWaiting: true } : null);
+              console.log("Waiting 60 seconds before retry...");
+              await sleep(60000); // Wait 60s on rate limit
+              setHintGenerationStatus(prev => prev ? { ...prev, isWaiting: false } : null);
+              retries++;
+            } else {
+              console.error(`Failed to generate hint for question ${q.id}:`, err);
+              break;
+            }
+          }
+        }
+        
+        setHintGenerationStatus({ 
+          total: questionsWithoutHints.length, 
+          current: currentCount, 
+          success: successCount,
+          isWaiting: false
+        });
+      }
+    } catch (error) {
+      console.error("Hint Generation Loop Error:", error);
+    } finally {
+      setIsHintGenerating(false);
+      setTimeout(() => setHintGenerationStatus(null), 5000);
     }
   };
 
@@ -1455,6 +1563,14 @@ const ManageQuestions: React.FC = () => {
             Dịch giải thích (AI)
           </button>
           <button
+            onClick={handleGenerateAllHints}
+            disabled={isHintGenerating || questions.length === 0}
+            className="bg-white text-amber-600 border-2 border-amber-100 px-4 sm:px-6 py-2.5 rounded-xl font-bold hover:bg-amber-50 transition-all flex items-center gap-2 text-sm sm:text-base disabled:opacity-50"
+          >
+            {isHintGenerating ? <Loader2 className="w-4 h-4 sm:w-5 h-5 animate-spin" /> : <Sparkles className="w-4 h-4 sm:w-5 h-5" />}
+            Tạo gợi ý (AI)
+          </button>
+          <button
             onClick={() => { setIsModalOpen(true); setEditingId(null); setFormData({ text: '', options: ['', '', '', ''], correctOption: 0, categoryId: '', exerciseType: 'multiple_choice', explanation: '', imageUrl: '', difficulty: 1, source: '', passage: '', passageId: '', essayAnswer: '', hint: '', pedagogicalHint: '' }); }}
             className="bg-blue-600 text-white px-4 sm:px-6 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2 text-sm sm:text-base"
           >
@@ -1499,7 +1615,7 @@ const ManageQuestions: React.FC = () => {
               <div className="space-y-2">
                 <h3 className="text-2xl font-black text-neutral-900">Dịch giải thích bằng AI?</h3>
                 <p className="text-neutral-500 font-medium">
-                  Hệ thống tìm thấy <span className="text-indigo-600 font-bold">{questions.filter(q => q.explanation?.trim()).length}</span> câu hỏi có phần giải thích. Bạn có muốn dịch tất cả sang tiếng Việt không?
+                  Hệ thống tìm thấy <span className="text-indigo-600 font-bold">{filteredQuestions.filter(q => q.explanation?.trim()).length}</span> câu hỏi đang được lọc có phần giải thích. Bạn có muốn dịch các câu hỏi này sang tiếng Việt không?
                 </p>
               </div>
               <div className="flex gap-3">
@@ -1514,6 +1630,44 @@ const ManageQuestions: React.FC = () => {
                   className="flex-1 px-6 py-3 rounded-2xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
                 >
                   Bắt đầu dịch
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Hint Generation Confirmation Modal */}
+      <AnimatePresence>
+        {isHintConfirmOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-neutral-100 text-center space-y-6"
+            >
+              <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center mx-auto">
+                <Sparkles className="w-10 h-10 text-amber-600" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-2xl font-black text-neutral-900">Tạo gợi ý học tập bằng AI?</h3>
+                <p className="text-neutral-500 font-medium">
+                  Hệ thống tìm thấy <span className="text-amber-600 font-bold">{filteredQuestions.filter(q => !q.pedagogicalHint || !q.pedagogicalHint.trim()).length}</span> câu hỏi trong danh sách lọc chưa có gợi ý học tập. Bạn có muốn sử dụng AI để tạo gợi ý cho các câu hỏi này không?
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setIsHintConfirmOpen(false)}
+                  className="flex-1 px-6 py-3 rounded-2xl font-bold text-neutral-500 hover:bg-neutral-100 transition-all"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  onClick={startHintGeneration}
+                  className="flex-1 px-6 py-3 rounded-2xl font-bold bg-amber-600 text-white hover:bg-amber-700 shadow-lg shadow-amber-200 transition-all"
+                >
+                  Bắt đầu tạo
                 </button>
               </div>
             </motion.div>
@@ -1540,7 +1694,7 @@ const ManageQuestions: React.FC = () => {
               )}
               <div className="flex-1 space-y-1">
                 <p className="font-bold text-sm">
-                  {isTranslating ? 'Đang dịch giải thích...' : 'Đã hoàn thành dịch!'}
+                  {translationStatus.isWaiting ? 'Đang tạm dừng chờ API (Rate Limit)...' : isTranslating ? 'Đang dịch giải thích...' : 'Đã hoàn thành dịch!'}
                 </p>
                 <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                   <motion.div 
@@ -1551,6 +1705,43 @@ const ManageQuestions: React.FC = () => {
                 </div>
                 <p className="text-[10px] text-neutral-400 font-medium">
                   Tiến độ: {translationStatus.current}/{translationStatus.total} câu hỏi ({translationStatus.success} thành công)
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Hint Generation Progress Toast */}
+      <AnimatePresence>
+        {hintGenerationStatus && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-8 right-8 z-[110] bg-neutral-900 text-white p-6 rounded-2xl shadow-2xl border border-white/10 min-w-[300px]"
+          >
+            <div className="flex items-center gap-4">
+              {isHintGenerating ? (
+                <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
+              ) : (
+                <div className="w-6 h-6 bg-emerald-500 rounded-full flex items-center justify-center">
+                  <Check className="w-4 h-4 text-white" />
+                </div>
+              )}
+              <div className="flex-1 space-y-1">
+                <p className="font-bold text-sm">
+                  {hintGenerationStatus.isWaiting ? 'Đang tạm dừng chờ API (Rate Limit)...' : isHintGenerating ? 'Đang tạo gợi ý học tập...' : 'Đã hoàn thành tạo gợi ý!'}
+                </p>
+                <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <motion.div 
+                    className="h-full bg-amber-500"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(hintGenerationStatus.current / hintGenerationStatus.total) * 100}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-neutral-400 font-medium">
+                  Tiến độ: {hintGenerationStatus.current}/{hintGenerationStatus.total} câu hỏi ({hintGenerationStatus.success} thành công)
                 </p>
               </div>
             </div>

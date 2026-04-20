@@ -173,6 +173,25 @@ export const parseQuestionsFromFile = async (file: File): Promise<ParsedQuestion
   }
 };
 
+export const generatePedagogicalHint = async (questionText: string, options?: string[], exerciseType?: string): Promise<string> => {
+  if (!questionText || !questionText.trim()) return "";
+  
+  const content = options && options.length > 0 
+    ? `Question: ${questionText}\nOptions: ${options.join(", ")}\nType: ${exerciseType}`
+    : `Question: ${questionText}\nType: ${exerciseType}`;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `Generate a subtle pedagogical hint (gợi ý học tập) in Vietnamese for the following English question. 
+    The hint should provide a clue or strategy to help students solve the question without giving away the answer directly.
+    Keep it concise (max 30 words).
+
+    ${content}`,
+  });
+
+  return response.text?.trim() || "";
+};
+
 export const translateExplanation = async (text: string): Promise<string> => {
   if (!text || !text.trim()) return "";
   const response = await ai.models.generateContent({
