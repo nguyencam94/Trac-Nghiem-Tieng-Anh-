@@ -173,6 +173,85 @@ export const parseQuestionsFromFile = async (file: File): Promise<ParsedQuestion
   }
 };
 
+export const generatePedagogicalHintsBatch = async (questions: { id: string, text: string, options?: string[], exerciseType?: string }[]): Promise<{ id: string, hint: string }[]> => {
+  if (questions.length === 0) return [];
+  
+  const contentBody = questions.map((q, i) => {
+    const opts = q.options && q.options.length > 0 ? `Options: ${q.options.join(", ")}` : "";
+    return `ID: ${q.id}\nQuestion ${i+1}: ${q.text}\n${opts}\nType: ${q.exerciseType}`;
+  }).join("\n\n---\n\n");
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `Generate subtle pedagogical hints (gợi ý học tập) in Vietnamese for the following English questions. 
+    Each hint should provide a clue or strategy without giving the answer.
+    Keep each hint concise (max 30 words).
+    Return the result as a JSON array of objects with "id" and "hint" fields.
+
+    Questions:
+    ${contentBody}`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            hint: { type: Type.STRING }
+          },
+          required: ["id", "hint"]
+        }
+      }
+    }
+  });
+
+  try {
+    return JSON.parse(response.text || "[]");
+  } catch (e) {
+    console.error("Failed to parse batch hints:", e);
+    return [];
+  }
+};
+
+export const translateExplanationsBatch = async (items: { id: string, text: string }[]): Promise<{ id: string, translated: string }[]> => {
+  if (items.length === 0) return [];
+  
+  const contentBody = items.map((item, i) => {
+    return `ID: ${item.id}\nExplanation ${i+1}: ${item.text}`;
+  }).join("\n\n---\n\n");
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: `Translate the following English grammar explanations into natural Vietnamese. Keep Markdown formatting.
+    Return the result as a JSON array of objects with "id" and "translated" fields.
+
+    Items:
+    ${contentBody}`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            translated: { type: Type.STRING }
+          },
+          required: ["id", "translated"]
+        }
+      }
+    }
+  });
+
+  try {
+    return JSON.parse(response.text || "[]");
+  } catch (e) {
+    console.error("Failed to parse batch translations:", e);
+    return [];
+  }
+};
+
 export const generatePedagogicalHint = async (questionText: string, options?: string[], exerciseType?: string): Promise<string> => {
   if (!questionText || !questionText.trim()) return "";
   

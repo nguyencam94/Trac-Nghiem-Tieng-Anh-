@@ -18,57 +18,60 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 font-sans">
       <header className="bg-white border-b border-neutral-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 text-xl font-bold tracking-tight text-blue-600">
-            <BookOpen className="w-6 h-6" />
-            <span>EnglishQuiz10</span>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+          <Link to="/" className="flex items-center gap-1.5 text-lg sm:text-xl font-bold tracking-tight text-blue-600 shrink-0">
+            <BookOpen className="w-5 h-5 sm:w-6 sm:h-6" />
+            <span className="hidden xs:inline">EnglishQuiz10</span>
+            <span className="xs:hidden">EQ10</span>
           </Link>
 
-          <nav className="flex items-center gap-4">
+          <nav className="flex items-center gap-2 sm:gap-4 overflow-hidden">
             {(user || schoolAccount) && (
-              <Link to="/statistics" className="flex items-center gap-1 text-sm font-medium text-neutral-600 hover:text-blue-600 transition-colors">
+              <Link to="/statistics" className="flex items-center gap-1 text-xs sm:text-sm font-medium text-neutral-600 hover:text-blue-600 transition-colors shrink-0">
                 <BarChart3 className="w-4 h-4" />
-                Thống kê
+                <span className="hidden md:inline">Thống kê</span>
               </Link>
             )}
             {(profile?.role === 'admin' || profile?.role === 'editor') && (
-              <Link to="/admin" className="flex items-center gap-1 text-sm font-medium text-neutral-600 hover:text-blue-600 transition-colors">
+              <Link to="/admin" className="flex items-center gap-1 text-xs sm:text-sm font-medium text-neutral-600 hover:text-blue-600 transition-colors shrink-0">
                 <ShieldCheck className="w-4 h-4" />
-                Admin
+                <span className="hidden md:inline">Admin</span>
               </Link>
             )}
             {user || schoolAccount ? (
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 text-sm text-neutral-600">
+              <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+                <div className="flex items-center gap-2 text-sm text-neutral-600 min-w-0">
                   {schoolAccount ? (
-                    <div className="flex flex-col items-end">
-                      <div className="flex items-center gap-1.5 font-bold text-neutral-900">
-                        <GraduationCap className="w-4 h-4 text-blue-600" />
-                        {studentInfo?.name || 'Học sinh'}
+                    <div className="flex flex-col items-end min-w-0">
+                      <div className="flex items-center gap-1.5 font-bold text-neutral-900 leading-tight">
+                        <GraduationCap className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span className="truncate max-w-[80px] sm:max-w-[150px]">
+                          {studentInfo?.name || 'Học sinh'}
+                        </span>
                       </div>
-                      <span className="text-[10px] text-neutral-400 font-medium uppercase tracking-wider">
+                      <span className="text-[9px] sm:text-[10px] text-neutral-400 font-medium uppercase tracking-wider truncate max-w-[100px] sm:max-w-[200px]">
                         Lớp {studentInfo?.class || '...'} • {schoolAccount.schoolName}
                       </span>
                     </div>
                   ) : (
                     <>
-                      <User className="w-4 h-4" />
-                      <span className="hidden sm:inline">{user?.displayName || user?.email}</span>
+                      <User className="w-4 h-4 shrink-0" />
+                      <span className="hidden sm:inline truncate max-w-[100px]">{user?.displayName || user?.email}</span>
                     </>
                   )}
                 </div>
                 <button
                   onClick={() => { logout(); navigate('/'); }}
-                  className="p-2 text-neutral-500 hover:text-red-600 transition-colors"
+                  className="p-1.5 sm:p-2 text-neutral-500 hover:text-red-600 transition-colors shrink-0"
                   title="Logout"
                 >
-                  <LogOut className="w-5 h-5" />
+                  <LogOut className="w-4 h-4 sm:w-5 h-5" />
                 </button>
               </div>
             ) : (
               <button
                 onClick={() => setIsLoginModalOpen(true)}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                className="bg-blue-600 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-medium hover:bg-blue-700 transition-colors shrink-0"
               >
                 Đăng nhập
               </button>

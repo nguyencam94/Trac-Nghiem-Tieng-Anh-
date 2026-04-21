@@ -14,7 +14,7 @@ import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { motion, AnimatePresence } from 'motion/react';
-import { parseQuestionsFromText, parseQuestionsFromFile, ParsedQuestion, translateExplanation, generatePedagogicalHint } from '../services/aiService';
+import { parseQuestionsFromText, parseQuestionsFromFile, ParsedQuestion, translateExplanation, generatePedagogicalHint, translateExplanationsBatch, generatePedagogicalHintsBatch } from '../services/aiService';
 
 const QuestionFormModal = React.memo(({
     isOpen,
@@ -1181,36 +1181,45 @@ const ManageQuestions: React.FC = () => {
 
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    try {
-      for (const q of questionsToTranslate) {
-        currentCount++;
-        
-        // Use a 7s delay to be much safer (Gemini free tier is ~15 RPM)
-        if (currentCount > 1) {
-          await sleep(7000); 
-        }
+    // Batch processing in chunks of 5
+    const chunkSize = 5;
+    const chunks = [];
+    for (let i = 0; i < questionsToTranslate.length; i += chunkSize) {
+      chunks.push(questionsToTranslate.slice(i, i + chunkSize));
+    }
 
+    try {
+      for (const chunk of chunks) {
         let retries = 0;
-        const maxRetries = 2;
+        const maxRetries = 3;
         let success = false;
 
         while (retries <= maxRetries && !success) {
           try {
-            const translated = await translateExplanation(q.explanation!);
-            if (translated && translated !== q.explanation) {
-              await updateDoc(doc(db, 'questions', q.id), { 
-                explanation: translated,
-                text: q.text,
-                options: q.options,
-                correctOption: q.correctOption,
-                categoryId: q.categoryId,
-                createdAt: q.createdAt || new Date().toISOString(),
-                difficulty: q.difficulty || 1,
-                exerciseType: q.exerciseType || 'multiple_choice'
-              });
-              successCount++;
+            const results = await translateExplanationsBatch(chunk.map(q => ({ id: q.id, text: q.explanation! })));
+            
+            for (const res of results) {
+              const originalQ = chunk.find(q => q.id === res.id);
+              if (originalQ && res.translated && res.translated !== originalQ.explanation) {
+                await updateDoc(doc(db, 'questions', originalQ.id), { 
+                  explanation: res.translated,
+                  text: originalQ.text,
+                  options: originalQ.options,
+                  correctOption: originalQ.correctOption,
+                  categoryId: originalQ.categoryId,
+                  createdAt: originalQ.createdAt || new Date().toISOString(),
+                  difficulty: originalQ.difficulty || 1,
+                  exerciseType: originalQ.exerciseType || 'multiple_choice'
+                });
+                successCount++;
+              }
             }
+            
+            currentCount += chunk.length;
             success = true;
+            
+            // Wait between successful chunks
+            await sleep(10000); 
           } catch (err: any) {
             const errorStr = (err.message || err.statusText || JSON.stringify(err) || "").toString();
             const isRateLimit = errorStr.includes('429') || 
@@ -1219,28 +1228,29 @@ const ManageQuestions: React.FC = () => {
                                 err.code === 429;
 
             if (isRateLimit) {
-              console.error(`Rate limit hit on question ${q.id} (Attempt ${retries + 1}):`, err);
               setTranslationStatus(prev => prev ? { ...prev, isWaiting: true } : null);
-              console.log("Waiting 60 seconds before retry...");
+              console.log("Rate limit hit, waiting 60 seconds before retry...");
               await sleep(60000); // Wait 60s on rate limit
               setTranslationStatus(prev => prev ? { ...prev, isWaiting: false } : null);
               retries++;
             } else {
-              console.error(`Failed to translate question ${q.id}:`, err);
+              console.error("Batch failure:", err);
+              // For other errors, we wait and stop the chunk
+              await sleep(5000);
               break;
             }
           }
+          
+          setTranslationStatus({ 
+            total: questionsToTranslate.length, 
+            current: Math.min(currentCount, questionsToTranslate.length), 
+            success: successCount,
+            isWaiting: false
+          });
         }
-        
-        setTranslationStatus({ 
-          total: questionsToTranslate.length, 
-          current: currentCount, 
-          success: successCount,
-          isWaiting: false
-        });
       }
     } catch (error) {
-      console.error("Translation Loop Error:", error);
+      console.error("Translation Master Loop Error:", error);
     } finally {
       setIsTranslating(false);
       setTimeout(() => setTranslationStatus(null), 5000);
@@ -1267,36 +1277,50 @@ const ManageQuestions: React.FC = () => {
 
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    try {
-      for (const q of questionsWithoutHints) {
-        currentCount++;
-        
-        // Use 7s delay to be much safer
-        if (currentCount > 1) {
-          await sleep(7000); 
-        }
+    // Batch processing in chunks of 5
+    const chunkSize = 5;
+    const chunks = [];
+    for (let i = 0; i < questionsWithoutHints.length; i += chunkSize) {
+      chunks.push(questionsWithoutHints.slice(i, i + chunkSize));
+    }
 
+    try {
+      for (const chunk of chunks) {
         let retries = 0;
-        const maxRetries = 2;
+        const maxRetries = 3;
         let success = false;
 
         while (retries <= maxRetries && !success) {
           try {
-            const hint = await generatePedagogicalHint(q.text, q.options, q.exerciseType);
-            if (hint) {
-              await updateDoc(doc(db, 'questions', q.id), { 
-                pedagogicalHint: hint,
-                text: q.text,
-                options: q.options,
-                correctOption: q.correctOption,
-                categoryId: q.categoryId,
-                createdAt: q.createdAt || new Date().toISOString(),
-                difficulty: q.difficulty || 1,
-                exerciseType: q.exerciseType || 'multiple_choice'
-              });
-              successCount++;
+            const results = await generatePedagogicalHintsBatch(chunk.map(q => ({ 
+              id: q.id, 
+              text: q.text, 
+              options: q.options, 
+              exerciseType: q.exerciseType 
+            })));
+            
+            for (const res of results) {
+              const originalQ = chunk.find(q => q.id === res.id);
+              if (originalQ && res.hint) {
+                await updateDoc(doc(db, 'questions', originalQ.id), { 
+                  pedagogicalHint: res.hint,
+                  text: originalQ.text,
+                  options: originalQ.options,
+                  correctOption: originalQ.correctOption,
+                  categoryId: originalQ.categoryId,
+                  createdAt: originalQ.createdAt || new Date().toISOString(),
+                  difficulty: originalQ.difficulty || 1,
+                  exerciseType: originalQ.exerciseType || 'multiple_choice'
+                });
+                successCount++;
+              }
             }
+            
+            currentCount += chunk.length;
             success = true;
+            
+            // Wait between successful chunks
+            await sleep(10000); 
           } catch (err: any) {
             const errorStr = (err.message || err.statusText || JSON.stringify(err) || "").toString();
             const isRateLimit = errorStr.includes('429') || 
@@ -1305,28 +1329,28 @@ const ManageQuestions: React.FC = () => {
                                 err.code === 429;
 
             if (isRateLimit) {
-              console.error(`Rate limit hit on question ${q.id} (Attempt ${retries + 1}):`, err);
               setHintGenerationStatus(prev => prev ? { ...prev, isWaiting: true } : null);
-              console.log("Waiting 60 seconds before retry...");
+              console.log("Rate limit hit, waiting 60 seconds before retry...");
               await sleep(60000); // Wait 60s on rate limit
               setHintGenerationStatus(prev => prev ? { ...prev, isWaiting: false } : null);
               retries++;
             } else {
-              console.error(`Failed to generate hint for question ${q.id}:`, err);
+              console.error("Batch failure:", err);
+              await sleep(5000);
               break;
             }
           }
+
+          setHintGenerationStatus({ 
+            total: questionsWithoutHints.length, 
+            current: Math.min(currentCount, questionsWithoutHints.length), 
+            success: successCount,
+            isWaiting: false
+          });
         }
-        
-        setHintGenerationStatus({ 
-          total: questionsWithoutHints.length, 
-          current: currentCount, 
-          success: successCount,
-          isWaiting: false
-        });
       }
     } catch (error) {
-      console.error("Hint Generation Loop Error:", error);
+      console.error("Hint Generation Master Loop Error:", error);
     } finally {
       setIsHintGenerating(false);
       setTimeout(() => setHintGenerationStatus(null), 5000);
