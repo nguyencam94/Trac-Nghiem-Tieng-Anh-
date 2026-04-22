@@ -19,10 +19,14 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     <div className="min-h-screen bg-neutral-50 text-neutral-900 font-sans">
       <header className="bg-white border-b border-neutral-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
-          <Link to="/" className="flex items-center gap-1.5 text-lg sm:text-xl font-bold tracking-tight text-blue-600 shrink-0">
-            <BookOpen className="w-5 h-5 sm:w-6 sm:h-6" />
-            <span className="hidden xs:inline">EnglishQuiz10</span>
-            <span className="xs:hidden">EQ10</span>
+          <Link to="/" className="flex items-center gap-2 text-lg sm:text-xl font-bold tracking-tight text-blue-600 shrink-0">
+            <img 
+              src="https://i.postimg.cc/fRv07Dnb/logo-doan-thanh-nien-vector.jpg" 
+              alt="Logo Đoàn" 
+              className="w-10 h-10 object-contain"
+              referrerPolicy="no-referrer"
+            />
+            <span className="hidden md:inline">EnglishQuiz10</span>
           </Link>
 
           <nav className="flex items-center gap-2 sm:gap-4 overflow-hidden">
@@ -92,7 +96,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       <footer className="bg-white border-t border-neutral-200 py-8 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-neutral-500 text-sm space-y-2">
           <p>&copy; {new Date().getFullYear()} English Quiz 10th Grade Prep. All rights reserved.</p>
-          <p className="font-medium">by Cam Nguyen</p>
+          <p className="font-medium">by Đoàn TNCS Hồ Chí Minh xã Đông Tiền Hải</p>
           <p className="text-xs">For more information contact: <a href="tel:0984653497" className="text-blue-600 hover:underline">098 465.3497</a></p>
         </div>
       </footer>

@@ -30,6 +30,23 @@ const HomePage: React.FC = () => {
         >
           Hệ thống ôn tập kiến thức trọng tâm và luyện đề trắc nghiệm giúp bạn tự tin đạt điểm cao.
         </motion.p>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="pt-4"
+        >
+          <a 
+            href="https://www.facebook.com/groups/23968454402785920" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="inline-flex flex-col sm:flex-row items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl shadow-lg shadow-blue-200/50 border border-white/20 hover:scale-105 hover:shadow-xl transition-all duration-300 group"
+          >
+            <span className="text-white font-bold text-sm sm:text-base text-center leading-relaxed group-hover:text-blue-50">
+              Công trình thanh niên hưởng ứng cuộc vận động chuyển đổi số của Đoàn thanh niên Xã Đông Tiền Hải
+            </span>
+          </a>
+        </motion.div>
       </section>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 max-w-5xl mx-auto px-4">
@@ -132,9 +149,12 @@ const HomePage: React.FC = () => {
         className="max-w-4xl mx-auto px-4"
       >
         <div className="bg-neutral-900 rounded-[2rem] p-8 sm:p-12 text-white flex flex-col md:flex-row items-center justify-between gap-8">
-          <div className="space-y-2 text-center md:text-left">
+          <div className="space-y-3 text-center md:text-left">
             <h3 className="text-xl sm:text-2xl font-bold">Sẵn sàng cho kỳ thi?</h3>
-            <p className="text-neutral-400">Hàng ngàn câu hỏi đang chờ bạn chinh phục.</p>
+            <div className="space-y-1">
+              <p className="text-neutral-400">Hàng ngàn câu hỏi đang chờ bạn chinh phục.</p>
+              <p className="text-blue-400 font-medium text-sm sm:text-base">Cập nhật liên tục đề thi thử của các tỉnh thành, các trường nổi tiếng.</p>
+            </div>
           </div>
           <div className="flex gap-8 sm:gap-12">
             <div className="text-center">
