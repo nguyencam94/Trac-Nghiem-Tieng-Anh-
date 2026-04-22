@@ -796,6 +796,8 @@ const BulkAiImportModal = React.memo(({
             exerciseType: finalType,
             source: bulkSource || q.source || '',
             essayAnswer: q.essayAnswer || '',
+            correctOption: typeof q.correctOption === 'number' ? q.correctOption : parseInt(String(q.correctOption)) || 0,
+            difficulty: typeof q.difficulty === 'number' ? q.difficulty : parseInt(String(q.difficulty)) || 1,
             createdAt: new Date().toISOString(),
             order: index++,
             authorId: userUid

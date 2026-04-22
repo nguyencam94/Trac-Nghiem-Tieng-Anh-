@@ -94,24 +94,32 @@ service cloud.firestore {
 
     function isValidQuestion(data) {
       let isEssay = 'exerciseType' in data && data.exerciseType == 'essay';
+      let isMC = !('exerciseType' in data) || data.exerciseType == 'multiple_choice';
       
       return data.keys().hasAll(['text', 'options', 'correctOption', 'categoryId', 'createdAt']) &&
-             data.text is string && data.text.size() > 0 && data.text.size() < 5000 &&
-             data.options is list && (isEssay ? data.options.size() == 0 : data.options.size() == 4) &&
-             data.correctOption is int && (isEssay ? data.correctOption == -1 : (data.correctOption >= 0 && data.correctOption <= 3)) &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 10000 &&
+             data.options is list && 
+             (isEssay ? data.options.size() == 0 : 
+              isMC ? data.options.size() == 4 : 
+              data.options.size() >= 0) &&
+             data.correctOption is int && 
+             (isEssay ? data.correctOption == -1 : 
+              isMC ? (data.correctOption >= 0 && data.correctOption <= 3) : 
+              true) &&
              data.categoryId is string &&
              data.createdAt is string &&
-             (!('exerciseType' in data) || (data.exerciseType is string && data.exerciseType in ['multiple_choice', 'fill_blank', 'error_find', 'synonym_antonym', 'pronunciation_stress', 'sentence_transformation', 'reorder', 'reading_comprehension', 'reading', 'picture_guess', 'essay', 'other'])) &&
+             (!('exerciseType' in data) || (data.exerciseType is string && data.exerciseType.size() < 100)) &&
              (!('essayAnswer' in data) || (data.essayAnswer is string && data.essayAnswer.size() < 5000)) &&
              (!('hint' in data) || (data.hint is string && data.hint.size() < 1000)) &&
              (!('difficulty' in data) || (data.difficulty is int && data.difficulty >= 1 && data.difficulty <= 3)) &&
-             (!('explanation' in data) || (data.explanation is string && data.explanation.size() < 5000)) &&
-             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() < 1000)) &&
-             (!('source' in data) || (data.source is string && data.source.size() < 500)) &&
-             (!('passage' in data) || (data.passage is string && data.passage.size() < 20000)) &&
-             (!('passageId' in data) || (data.passageId is string && data.passageId.size() < 200)) &&
+             (!('explanation' in data) || (data.explanation is string && data.explanation.size() < 10000)) &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() < 2000)) &&
+             (!('source' in data) || (data.source is string && data.source.size() < 1000)) &&
+             (!('passage' in data) || (data.passage is string && data.passage.size() < 30000)) &&
+             (!('passageId' in data) || (data.passageId is string && data.passageId.size() < 300)) &&
              (!('authorId' in data) || (data.authorId is string)) &&
-             (!('order' in data) || (data.order is int));
+             (!('order' in data) || (data.order is int)) &&
+             (!('pedagogicalHint' in data) || (data.pedagogicalHint is string && data.pedagogicalHint.size() < 5000));
     }
 
     function isValidUserCreate(data) {
