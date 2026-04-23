@@ -18,15 +18,21 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 font-sans">
       <header className="bg-white border-b border-neutral-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
-          <Link to="/" className="flex items-center gap-2 text-lg sm:text-xl font-bold tracking-tight text-blue-600 shrink-0">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 sm:h-24 flex items-center justify-between gap-2">
+          <Link to="/" className="flex items-center gap-3 text-blue-600 shrink-0">
             <img 
               src="https://i.postimg.cc/fRv07Dnb/logo-doan-thanh-nien-vector.jpg" 
               alt="Logo Đoàn" 
-              className="w-10 h-10 object-contain"
+              className="w-12 h-12 sm:w-16 sm:h-16 object-contain"
               referrerPolicy="no-referrer"
             />
-            <span className="hidden md:inline">EnglishQuiz10</span>
+            <div className="flex flex-col justify-center items-center leading-tight">
+              <div className="flex flex-col items-center text-center text-[8px] xs:text-[9px] sm:text-[11px] font-bold text-neutral-500 uppercase tracking-tighter sm:tracking-normal">
+                <span>Đoàn TNCS Hồ Chí Minh</span>
+                <span>Xã Đông Tiền Hải</span>
+              </div>
+              <span className="text-base sm:text-2xl font-black tracking-tighter sm:tracking-tight mt-0.5">EnglishQuiz10</span>
+            </div>
           </Link>
 
           <nav className="flex items-center gap-2 sm:gap-4 overflow-hidden">

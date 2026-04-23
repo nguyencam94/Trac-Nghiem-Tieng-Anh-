@@ -10,9 +10,9 @@ const HomePage: React.FC = () => {
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="inline-block px-4 py-1.5 bg-blue-50 text-blue-600 rounded-full text-sm font-bold tracking-wide uppercase mb-2"
+          className="inline-block px-6 py-2 bg-blue-50 text-blue-700 rounded-full text-[9px] xs:text-[10px] sm:text-xs font-black tracking-widest uppercase mb-4 shadow-sm border border-blue-100"
         >
-          Chinh phục kỳ thi 10
+          ĐOÀN THANH NIÊN CỘNG SẢN HỒ CHÍ MINH XÃ ĐÔNG TIỀN HẢI ĐỒNG HÀNH CÙNG SĨ TỬ CHINH PHỤC KỲ THI 10
         </motion.div>
         <motion.h1 
           initial={{ opacity: 0, y: -20 }}
