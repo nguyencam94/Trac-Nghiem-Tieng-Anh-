@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { GrammarTopic, OperationType, UserProfile } from '../types';
+import { GrammarTopic, OperationType, UserProfile, Category } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, Trash2, Edit2, X, ChevronLeft, BookOpen, AlertCircle, GripVertical, Table, ShieldAlert } from 'lucide-react';
 import { handleFirestoreError } from '../lib/utils';
@@ -16,6 +16,7 @@ const ManageGrammar: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
   const [topics, setTopics] = useState<GrammarTopic[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [authors, setAuthors] = useState<UserProfile[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -25,6 +26,7 @@ const ManageGrammar: React.FC = () => {
     title: '',
     content: '',
     order: 0,
+    categoryId: '',
   });
 
   const contentRef = React.useRef<HTMLTextAreaElement>(null);
@@ -85,9 +87,17 @@ const ManageGrammar: React.FC = () => {
       handleFirestoreError(error, OperationType.LIST, 'users');
     });
 
+    const qCats = query(collection(db, 'categories'), orderBy('name', 'asc'));
+    const unsubCats = onSnapshot(qCats, (snapshot) => {
+      setCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Category)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'categories');
+    });
+
     return () => {
       unsubscribe();
       unsubUsers();
+      unsubCats();
     };
   }, []);
 
@@ -112,7 +122,7 @@ const ManageGrammar: React.FC = () => {
         });
       }
 
-      setFormData({ title: '', content: '', order: topics.length + 1 });
+      setFormData({ title: '', content: '', order: topics.length + 1, categoryId: '' });
       setIsModalOpen(false);
     } catch (error) {
       handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, editingId ? `grammar/${editingId}` : 'grammar');
@@ -134,6 +144,7 @@ const ManageGrammar: React.FC = () => {
       title: t.title,
       content: t.content,
       order: t.order || 0,
+      categoryId: t.categoryId || '',
     });
     setEditingId(t.id);
     setViewMode('edit');
@@ -159,7 +170,7 @@ const ManageGrammar: React.FC = () => {
         </div>
         {profile?.role === 'admin' || profile?.role === 'editor' ? (
           <button
-            onClick={() => { setIsModalOpen(true); setEditingId(null); setViewMode('edit'); setFormData({ title: '', content: '', order: topics.length + 1 }); }}
+            onClick={() => { setIsModalOpen(true); setEditingId(null); setViewMode('edit'); setFormData({ title: '', content: '', order: topics.length + 1, categoryId: '' }); }}
             className="bg-blue-600 text-white px-4 sm:px-6 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2 self-start text-sm sm:text-base"
           >
             <Plus className="w-4 h-4 sm:w-5 h-5" />
@@ -226,8 +237,8 @@ const ManageGrammar: React.FC = () => {
               <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
                 {viewMode === 'edit' ? (
                   <form id="grammar-form" onSubmit={handleSubmit} className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div className="md:col-span-3 space-y-1.5">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                      <div className="md:col-span-2 space-y-1.5">
                         <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Tiêu đề chủ đề</label>
                         <input
                           type="text"
@@ -238,8 +249,21 @@ const ManageGrammar: React.FC = () => {
                           required
                         />
                       </div>
+                      <div className="md:col-span-2 space-y-1.5">
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Gắn với bài tập (Chủ đề)</label>
+                        <select
+                          value={formData.categoryId}
+                          onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+                          className="w-full bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none text-sm sm:text-base transition-all"
+                        >
+                          <option value="">-- Không gắn --</option>
+                          {categories.map(cat => (
+                            <option key={cat.id} value={cat.id}>{cat.name}</option>
+                          ))}
+                        </select>
+                      </div>
                       <div className="space-y-1.5">
-                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Thứ tự hiển thị</label>
+                        <label className="text-xs sm:text-sm font-semibold text-neutral-600 uppercase tracking-wider">Thứ tự</label>
                         <input
                           type="number"
                           value={formData.order}

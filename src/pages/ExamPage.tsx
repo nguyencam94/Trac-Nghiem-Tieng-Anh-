@@ -6,7 +6,7 @@ import { db, storage, auth } from '../firebase';
 import { Question, OperationType, ExamConfig } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, XCircle, Clock, AlertCircle, ChevronLeft, Send, RotateCcw, Info, BookOpen, ChevronRight, Eye, EyeOff, Edit3, Save, X, Underline, CornerDownLeft, Bold, Upload, User, Sparkles } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, AlertCircle, ChevronLeft, Send, RotateCcw, Info, BookOpen, ChevronRight, Eye, EyeOff, Edit3, Save, X, Underline, CornerDownLeft, Bold, Upload, User, Sparkles, BarChart3, TrendingUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
@@ -41,6 +41,58 @@ const ExamPage: React.FC = () => {
   const [isRetryMode, setIsRetryMode] = useState(false);
   const [visibleHintIndices, setVisibleHintIndices] = useState<Set<number>>(new Set());
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [categories, setCategories] = useState<Record<string, string>>({});
+  const [showAnalysis, setShowAnalysis] = useState(false);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, 'categories'));
+        const cats: Record<string, string> = {};
+        snapshot.docs.forEach(doc => {
+          cats[doc.id] = doc.data().name;
+        });
+        setCategories(cats);
+      } catch (error) {
+        console.error("Error fetching categories:", error);
+      }
+    };
+    fetchCategories();
+  }, []);
+
+  const analysis = React.useMemo(() => {
+    if (!isSubmitted) return {};
+    const result: Record<string, { total: number; correct: number; questions: number[] }> = {};
+    
+    questions.forEach((q, idx) => {
+      const catId = q.categoryId || 'unknown';
+      const catName = categories[catId] || 'Chưa phân loại';
+      
+      if (!result[catName]) {
+        result[catName] = { total: 0, correct: 0, questions: [] };
+      }
+      
+      result[catName].total++;
+      
+      let isCorrect = false;
+      if (q.exerciseType === 'essay') {
+        if (q.essayAnswer && userAnswers[idx]) {
+          isCorrect = (userAnswers[idx] as string).trim().toLowerCase() === q.essayAnswer.trim().toLowerCase();
+        }
+      } else {
+        isCorrect = userAnswers[idx] === q.correctOption;
+      }
+      
+      if (isCorrect) {
+        result[catName].correct++;
+      } else {
+        result[catName].questions.push(idx + 1);
+      }
+    });
+    
+    return result;
+  }, [isSubmitted, questions, userAnswers, categories]);
 
   // Use refs to avoid stale closures in timer callback
   const schoolAccountRef = useRef(schoolAccount);
@@ -619,6 +671,164 @@ const ExamPage: React.FC = () => {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Result Analysis Panel */}
+      <AnimatePresence>
+        {isSubmitted && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            <div className="bg-white rounded-[2.5rem] border-4 border-rose-100 shadow-xl overflow-hidden">
+              <div className="p-6 sm:p-8 bg-rose-50/50 border-b border-rose-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="space-y-1 text-center sm:text-left">
+                  <h2 className="text-2xl font-black text-rose-900 flex items-center justify-center sm:justify-start gap-2">
+                    <BarChart3 className="w-7 h-7" /> TỔNG HỢP & PHÂN TÍCH
+                  </h2>
+                  <p className="text-rose-700 font-medium">Báo cáo chi tiết các vùng kiến thức cần lưu ý.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="px-5 py-3 bg-white rounded-2xl border-4 border-rose-200 shadow-sm text-center">
+                    <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest">Điểm số</p>
+                    <p className="text-3xl font-black text-rose-600 leading-none">{score.toFixed(1)} <span className="text-sm text-neutral-400">/ 10</span></p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 sm:p-8 space-y-8">
+                {/* Statistics Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="p-4 bg-neutral-50 rounded-2xl border border-neutral-100 text-center space-y-1">
+                    <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">Tổng câu</p>
+                    <p className="text-xl font-black text-neutral-900">{questions.length}</p>
+                  </div>
+                  <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 text-center space-y-1">
+                    <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Số câu đúng</p>
+                    <p className="text-xl font-black text-emerald-600">{questions.filter((q, idx) => {
+                      if (q.exerciseType === 'essay') {
+                        return q.essayAnswer && userAnswers[idx] && (userAnswers[idx] as string).trim().toLowerCase() === q.essayAnswer.trim().toLowerCase();
+                      }
+                      return userAnswers[idx] === q.correctOption;
+                    }).length}</p>
+                  </div>
+                  <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100 text-center space-y-1">
+                    <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest">Số câu sai</p>
+                    <p className="text-xl font-black text-rose-600">{questions.filter((q, idx) => {
+                      if (q.exerciseType === 'essay') {
+                        return !q.essayAnswer || !userAnswers[idx] || (userAnswers[idx] as string).trim().toLowerCase() !== q.essayAnswer.trim().toLowerCase();
+                      }
+                      return userAnswers[idx] !== q.correctOption;
+                    }).length}</p>
+                  </div>
+                  <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100 text-center space-y-1">
+                    <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Hoàn thành</p>
+                    <p className="text-xl font-black text-blue-600">{Math.round((Object.keys(userAnswers).length / questions.length) * 100)}%</p>
+                  </div>
+                </div>
+
+                {/* Question Navigator - "Panel Tổng Hợp" */}
+                <div className="space-y-3">
+                  <p className="text-xs font-black text-neutral-400 uppercase tracking-widest">Danh sách câu hỏi</p>
+                  <div className="flex flex-wrap gap-2">
+                    {questions.map((q, idx) => {
+                      let isCorrect = false;
+                      if (q.exerciseType === 'essay') {
+                        isCorrect = q.essayAnswer && userAnswers[idx] && (userAnswers[idx] as string).trim().toLowerCase() === q.essayAnswer.trim().toLowerCase();
+                      } else {
+                        isCorrect = userAnswers[idx] === q.correctOption;
+                      }
+
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            const element = document.getElementById(`question-${idx}`);
+                            if (element) element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }}
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-black transition-all shadow-sm ${
+                            isCorrect 
+                              ? 'bg-emerald-500 text-white shadow-emerald-100 ring-2 ring-emerald-500 ring-offset-2' 
+                              : 'bg-rose-500 text-white shadow-rose-100 ring-2 ring-rose-500 ring-offset-2'
+                          }`}
+                        >
+                          {idx + 1}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="h-px bg-rose-100" />
+
+                {/* Weak Areas Summary */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {Object.entries(analysis).map(([catName, data]) => {
+                    const percentage = (data.correct / data.total) * 100;
+                    const isWeak = percentage < 70;
+                    
+                    return (
+                      <div key={catName} className={`p-5 rounded-3xl border-2 transition-all ${isWeak ? 'bg-amber-50 border-amber-200 shadow-amber-50' : 'bg-emerald-50 border-emerald-200 shadow-emerald-50'} shadow-md`}>
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="space-y-1">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">Chủ đề</span>
+                            <h3 className="text-lg font-black text-neutral-900 leading-tight">{catName}</h3>
+                          </div>
+                          <div className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest ${isWeak ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {Math.round(percentage)}%
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="w-full h-3 bg-white rounded-full overflow-hidden border-2 border-neutral-100/50">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${percentage}%` }}
+                              className={`h-full ${isWeak ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                            />
+                          </div>
+                          
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="font-bold text-neutral-500">Đúng {data.correct}/{data.total} câu</span>
+                            {data.questions.length > 0 && (
+                              <div className="flex flex-wrap gap-1 justify-end max-w-[150px]">
+                                <span className="text-[10px] font-black text-rose-500 uppercase mr-1 text-right">Câu sai:</span>
+                                {data.questions.map(qNum => (
+                                  <span key={qNum} className="w-6 h-6 flex items-center justify-center bg-rose-100 text-rose-700 text-[10px] font-black rounded-lg">
+                                    {qNum}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Conclusion/Advice */}
+                <div className="p-6 bg-blue-50 border-2 border-blue-100 rounded-[2rem] flex flex-col md:flex-row items-center gap-6">
+                  <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-blue-600 shadow-lg shadow-blue-100 shrink-0">
+                    <TrendingUp className="w-8 h-8" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-lg font-black text-blue-900 uppercase tracking-tight">Gợi ý lộ trình ôn tập</h4>
+                    <p className="text-blue-700 font-medium">
+                      {score >= 8 
+                        ? "Phong độ rất ổn định! Hãy tiếp tục duy trì và luyện tập các đề thi có độ khó cao hơn để làm quen với áp lực." 
+                        : score >= 5 
+                        ? "Kết quả khá tốt, nhưng bạn vẫn còn một số lỗ hổng kiến thức. Hãy tập trung ôn lại các câu sai thuộc chủ đề màu vàng phía trên." 
+                        : "Cố gắng lên nhé! Bạn cần dành nhiều thời gian hơn để ôn lại kiến thức cơ bản của các chủ đề trên trước khi tiếp tục giải đề."
+                      }
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 

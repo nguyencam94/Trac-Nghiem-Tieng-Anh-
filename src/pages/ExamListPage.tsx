@@ -14,19 +14,16 @@ const ExamListPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
 
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
-  const [hiddenSources, setHiddenSources] = useState<Set<string>>(new Set());
+  const [examConfigs, setExamConfigs] = useState<Record<string, ExamConfig>>({});
 
   useEffect(() => {
     // Listen to configs
     const unsubscribeConfigs = onSnapshot(collection(db, 'exam_configs'), (snapshot) => {
-      const hidden = new Set<string>();
+      const configs: Record<string, ExamConfig> = {};
       snapshot.docs.forEach(doc => {
-        const cfg = doc.data() as ExamConfig;
-        if (cfg.isHidden) {
-          hidden.add(doc.id);
-        }
+        configs[doc.id] = doc.data() as ExamConfig;
       });
-      setHiddenSources(hidden);
+      setExamConfigs(configs);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'exam_configs');
     });
@@ -49,13 +46,14 @@ const ExamListPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Process sources and counts whenever questions or hiddenSources change
+    // Process sources and counts whenever questions or examConfigs change
     const counts: Record<string, number> = {};
     const uniqueSources = new Set<string>();
     
     allQuestions.forEach(q => {
       if (q.source && q.source.trim() !== '' && q.source.toLowerCase() !== 'chung') {
-        if (!hiddenSources.has(q.source)) {
+        const config = examConfigs[q.source];
+        if (!config || !config.isHidden) {
           uniqueSources.add(q.source);
           counts[q.source] = (counts[q.source] || 0) + 1;
         }
@@ -64,7 +62,34 @@ const ExamListPage: React.FC = () => {
     
     setSources(Array.from(uniqueSources).sort());
     setQuestionCounts(counts);
-  }, [allQuestions, hiddenSources]);
+  }, [allQuestions, examConfigs]);
+
+  const getDifficultyStyles = (difficulty?: string) => {
+    switch (difficulty) {
+      case 'easy': return 'bg-emerald-50 border-emerald-100 hover:border-emerald-400 hover:shadow-emerald-200/40 text-emerald-700';
+      case 'medium': return 'bg-orange-50 border-orange-100 hover:border-orange-400 hover:shadow-orange-200/40 text-orange-700';
+      case 'hard': return 'bg-rose-50 border-rose-100 hover:border-rose-400 hover:shadow-rose-200/40 text-rose-700';
+      default: return 'bg-white border-neutral-100 hover:border-rose-400 hover:shadow-rose-200/40 text-neutral-900';
+    }
+  };
+
+  const getDifficultyBadge = (difficulty?: string) => {
+    switch (difficulty) {
+      case 'easy': return 'bg-emerald-500 text-white';
+      case 'medium': return 'bg-orange-500 text-white';
+      case 'hard': return 'bg-rose-500 text-white';
+      default: return 'bg-neutral-200 text-neutral-500';
+    }
+  };
+
+  const getDifficultyLabel = (difficulty?: string) => {
+    switch (difficulty) {
+      case 'easy': return 'Dễ';
+      case 'medium': return 'Vừa';
+      case 'hard': return 'Khó';
+      default: return 'Cơ bản';
+    }
+  };
 
   if (loading) {
     return (
@@ -167,14 +192,24 @@ const ExamListPage: React.FC = () => {
                   exit={{ opacity: 0, scale: 0.95 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <div className="group block bg-white p-6 sm:p-8 rounded-[2rem] border-2 border-neutral-100 shadow-xl shadow-neutral-100/50 hover:shadow-2xl hover:shadow-rose-200/40 hover:border-rose-400 transition-all duration-300 h-full">
+                  <div className={`group block p-6 sm:p-8 rounded-[2rem] border-2 shadow-xl shadow-neutral-100/50 hover:shadow-2xl transition-all duration-300 h-full ${getDifficultyStyles(examConfigs[source]?.difficulty)}`}>
                     <div className="flex items-start justify-between gap-4 h-full">
                       <div className="space-y-4 flex-1">
-                        <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                          <FileText className="w-7 h-7" />
+                        <div className="flex items-center justify-between">
+                          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300 ${
+                            examConfigs[source]?.difficulty === 'easy' ? 'bg-emerald-100 text-emerald-600' :
+                            examConfigs[source]?.difficulty === 'medium' ? 'bg-orange-100 text-orange-600' :
+                            examConfigs[source]?.difficulty === 'hard' ? 'bg-rose-100 text-rose-600' :
+                            'bg-rose-50 text-rose-600'
+                          }`}>
+                            <FileText className="w-7 h-7" />
+                          </div>
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${getDifficultyBadge(examConfigs[source]?.difficulty)}`}>
+                            {getDifficultyLabel(examConfigs[source]?.difficulty)}
+                          </span>
                         </div>
                         <div className="space-y-1">
-                          <h3 className="text-xl font-black text-neutral-900 group-hover:text-rose-700 transition-colors line-clamp-2">
+                          <h3 className="text-xl font-black transition-colors line-clamp-2">
                             {source}
                           </h3>
                           <div className="flex items-center gap-4 text-neutral-400 text-sm font-bold uppercase tracking-wider">
@@ -204,7 +239,7 @@ const ExamListPage: React.FC = () => {
                           </Link>
                         </div>
                       </div>
-                      <div className="w-10 h-10 rounded-full bg-neutral-50 text-neutral-400 flex items-center justify-center group-hover:bg-rose-600 group-hover:text-white transition-all shrink-0">
+                      <div className="w-10 h-10 rounded-full bg-white text-neutral-400 flex items-center justify-center group-hover:bg-rose-600 group-hover:text-white transition-all shadow-sm shrink-0">
                         <ChevronRight className="w-6 h-6" />
                       </div>
                     </div>

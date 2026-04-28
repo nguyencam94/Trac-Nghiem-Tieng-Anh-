@@ -76,6 +76,30 @@ const ManageExams: React.FC = () => {
     }
   };
 
+  const updateDifficulty = async (source: string, difficulty: 'easy' | 'medium' | 'hard') => {
+    setUpdatingId(source);
+    try {
+      await setDoc(doc(db, 'exam_configs', source), {
+        id: source,
+        difficulty,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `exam_configs/${source}`);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const getDifficultyStyles = (difficulty?: string) => {
+    switch (difficulty) {
+      case 'easy': return 'bg-emerald-50 hover:bg-emerald-100/80';
+      case 'medium': return 'bg-orange-50 hover:bg-orange-100/80';
+      case 'hard': return 'bg-rose-50 hover:bg-rose-100/80';
+      default: return 'hover:bg-neutral-50/50';
+    }
+  };
+
   const filteredSources = sources.filter(s => 
     s.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -97,7 +121,7 @@ const ManageExams: React.FC = () => {
           </Link>
           <div>
             <h1 className="text-2xl font-black text-neutral-900">Quản lý Đề thi</h1>
-            <p className="text-neutral-500 font-medium text-sm">Ẩn/Hiện các đề thi thử trên hệ thống</p>
+            <p className="text-neutral-500 font-medium text-sm">Ẩn/Hiện và thiết lập độ khó cho đề thi</p>
           </div>
         </div>
 
@@ -119,6 +143,7 @@ const ManageExams: React.FC = () => {
             <thead>
               <tr className="bg-neutral-50/50 border-b border-neutral-100">
                 <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest">Đề thi</th>
+                <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest text-center">Độ khó</th>
                 <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest text-center">Trạng thái</th>
                 <th className="px-6 py-4 text-xs font-black text-neutral-500 uppercase tracking-widest text-right">Thao tác</th>
               </tr>
@@ -126,7 +151,8 @@ const ManageExams: React.FC = () => {
             <tbody className="divide-y divide-neutral-100">
               <AnimatePresence mode="popLayout">
                 {filteredSources.map((source) => {
-                  const isHidden = configs[source]?.isHidden || false;
+                  const config = configs[source];
+                  const isHidden = config?.isHidden || false;
                   return (
                     <motion.tr 
                       key={source}
@@ -134,50 +160,62 @@ const ManageExams: React.FC = () => {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="hover:bg-neutral-50/50 transition-colors"
+                      className={`transition-colors ${getDifficultyStyles(config?.difficulty)}`}
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-lg ${isHidden ? 'bg-neutral-100 text-neutral-400' : 'bg-rose-50 text-rose-600'}`}>
+                          <div className={`p-2 rounded-lg ${isHidden ? 'bg-neutral-100 text-neutral-400' : 'bg-white shadow-sm text-indigo-600 border border-neutral-100'}`}>
                             <FileText className="w-5 h-5" />
                           </div>
                           <span className={`font-bold ${isHidden ? 'text-neutral-400' : 'text-neutral-900'}`}>{source}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
-                          isHidden 
-                            ? 'bg-neutral-100 text-neutral-500' 
-                            : 'bg-emerald-50 text-emerald-600'
-                        }`}>
-                          {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          {isHidden ? 'Đã ẩn' : 'Đang hiện'}
-                        </span>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center gap-2">
+                          {[
+                            { value: 'easy' as const, label: 'Dễ', color: 'emerald' },
+                            { value: 'medium' as const, label: 'Vừa', color: 'orange' },
+                            { value: 'hard' as const, label: 'Khó', color: 'rose' }
+                          ].map((d) => (
+                            <button
+                              key={d.value}
+                              onClick={() => updateDifficulty(source, d.value)}
+                              disabled={updatingId === source}
+                              className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${
+                                config?.difficulty === d.value
+                                  ? `bg-${d.color}-500 text-white border-${d.color}-600 shadow-sm`
+                                  : `bg-white text-neutral-500 border-neutral-200 hover:border-${d.color}-400 hover:text-${d.color}-600`
+                              } disabled:opacity-50`}
+                            >
+                              {d.label}
+                            </button>
+                          ))}
+                        </div>
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-6 py-4 text-center">
                         <button
                           onClick={() => toggleVisibility(source)}
                           disabled={updatingId === source}
-                          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm transition-all ${
-                            isHidden
-                              ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-100'
-                              : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border shadow-sm transition-all ${
+                            isHidden 
+                              ? 'bg-neutral-100 text-neutral-500 border-neutral-200 hover:bg-neutral-200' 
+                              : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'
                           } disabled:opacity-50`}
                         >
-                          {updatingId === source ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : isHidden ? (
-                            <>
-                              <Eye className="w-4 h-4" />
-                              Hiện thị
-                            </>
-                          ) : (
-                            <>
-                              <EyeOff className="w-4 h-4" />
-                              Tạm ẩn
-                            </>
-                          )}
+                          {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          {isHidden ? 'Đã ẩn' : 'Đang hiện'}
                         </button>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end items-center gap-2">
+                          <Link 
+                            to={`/exam/${encodeURIComponent(source)}`}
+                            className="p-2 text-neutral-400 hover:text-indigo-600 transition-colors"
+                            title="Xem trước"
+                          >
+                            <Eye className="w-5 h-5" />
+                          </Link>
+                        </div>
                       </td>
                     </motion.tr>
                   );

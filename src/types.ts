@@ -60,11 +60,13 @@ export interface GrammarTopic {
   createdAt: string;
   order?: number;
   authorId?: string;
+  categoryId?: string; // Link to a practice category
 }
 
 export interface ExamConfig {
   id: string; // The source name acts as ID
   isHidden: boolean;
+  difficulty?: 'easy' | 'medium' | 'hard';
   order?: number;
   updatedAt: string;
 }
